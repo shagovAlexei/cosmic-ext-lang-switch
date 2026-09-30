@@ -87,6 +87,12 @@ pub async fn set_paused(paused: bool) {
     }
 }
 
+pub async fn set_active_app(app_id: String) {
+    if let Err(e) = async { proxy().await?.set_active_app(&app_id).await }.await {
+        log::debug!("set_active_app: {e}");
+    }
+}
+
 pub fn load_config() -> Config {
     cosmic_config::Config::new(APP_ID, Config::VERSION)
         .map(|h| Config::get_entry(&h).unwrap_or_else(|(_, c)| c))

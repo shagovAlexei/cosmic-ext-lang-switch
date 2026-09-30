@@ -25,6 +25,8 @@ pub enum Message {
     Daemon(Daemon),
     SetLayout(u32),
     SetEnabled(bool),
+    SetAuto(bool),
+    ActiveApp(String),
     Open(Open),
     Done,
 }
@@ -34,6 +36,8 @@ pub struct Applet {
     popup: Option<Id>,
     config: Config,
     daemon: Daemon,
+    /// Focused window's app id, forwarded to the daemon (it can't see it itself).
+    active_app: Option<String>,
     /// Kept as a field because `text_button` borrows it.
     label: String,
 }
@@ -71,6 +75,7 @@ impl Application for Applet {
             popup: None,
             config: daemon::load_config(),
             daemon: Daemon::default(),
+            active_app: None,
             label: String::new(),
         };
         applet.refresh_label();
@@ -87,6 +92,7 @@ impl Application for Applet {
                 .watch_config::<Config>(APP_ID)
                 .map(|u| Message::Config(u.config)),
             daemon::subscription().map(Message::Daemon),
+            crate::toplevel::subscription().map(Message::ActiveApp),
         ])
     }
 
@@ -118,7 +124,26 @@ impl Application for Applet {
                 }
                 self.config = c;
             }
-            Message::Daemon(d) => self.daemon = d,
+            Message::Daemon(d) => {
+                // A (re)started daemon doesn't know the focused app yet.
+                let came_up = self.daemon.status.is_empty() && !d.status.is_empty();
+                self.daemon = d;
+                if came_up && let Some(app) = self.active_app.clone() {
+                    return Task::perform(daemon::set_active_app(app), |()| {
+                        cosmic::action::app(Message::Done)
+                    });
+                }
+            }
+            Message::ActiveApp(app) => {
+                self.active_app = Some(app.clone());
+                return Task::perform(daemon::set_active_app(app), |()| {
+                    cosmic::action::app(Message::Done)
+                });
+            }
+            Message::SetAuto(on) => {
+                self.config.auto_enabled = on;
+                daemon::save_config(&self.config);
+            }
             Message::SetLayout(i) => {
                 return Task::perform(daemon::set_layout(i), |()| {
                     cosmic::action::app(Message::Done)
@@ -184,10 +209,14 @@ impl Application for Applet {
         if !self.daemon.layouts.is_empty() {
             list = list.push(separator());
         }
-        let toggle = widget::row::with_capacity(2)
-            .align_y(Alignment::Center)
-            .push(widget::text::body(fl!("enabled")).width(Length::Fill))
-            .push(widget::toggler(self.config.enabled).on_toggle(Message::SetEnabled));
+        let switch = |label: String, on: bool, msg: fn(bool) -> Message| {
+            padded_control(
+                widget::row::with_capacity(2)
+                    .align_y(Alignment::Center)
+                    .push(widget::text::body(label).width(Length::Fill))
+                    .push(widget::toggler(on).on_toggle(msg)),
+            )
+        };
         let button = |icon: &'static str, tip: String, open: Open| {
             widget::tooltip(
                 widget::button::icon(widget::icon::from_name(icon)).on_press(Message::Open(open)),
@@ -215,7 +244,16 @@ impl Application for Applet {
             ))
             .push(widget::Space::new().width(Length::Fill));
         list = list
-            .push(padded_control(toggle))
+            .push(switch(
+                fl!("enabled"),
+                self.config.enabled,
+                Message::SetEnabled,
+            ))
+            .push(switch(
+                fl!("auto-enabled"),
+                self.config.auto_enabled,
+                Message::SetAuto,
+            ))
             .push(separator())
             .push(padded_control(menu));
         self.core.applet.popup_container(list).into()

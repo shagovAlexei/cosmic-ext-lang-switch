@@ -3,6 +3,7 @@
 
 pub mod hotkey;
 pub mod keys;
+pub mod selection;
 pub use hotkey::Scope;
 pub mod config;
 pub mod dbus;

@@ -18,6 +18,8 @@ pub enum Action {
     Backspace(usize),
     SwitchLayout(u32),
     Type(Vec<Stroke>),
+    /// Read the selection and retype it in the other layout (daemon-side).
+    ConvertSelection,
 }
 
 /// What the daemon does with one key event from a grabbed keyboard.
@@ -182,6 +184,13 @@ impl Engine {
             return None;
         }
         let scope = self.pending.take()?;
+        if scope == Scope::Selection {
+            if self.layouts < 2 {
+                return None;
+            }
+            self.reset(); // the caret moves; the typed buffer no longer matches
+            return Some(vec![Action::ConvertSelection]);
+        }
         if let Some(last) = self.last.take() {
             let tail = self.strokes[self.strokes.len() - last.len..].to_vec();
             self.expected = Some(last.from);
@@ -197,6 +206,7 @@ impl Engine {
         let len = match scope {
             Scope::Word => word_len(&self.strokes),
             Scope::Phrase => self.strokes.len(),
+            Scope::Selection => unreachable!("handled above"),
         };
         if len == 0 {
             return None;
@@ -462,6 +472,33 @@ mod tests {
         }
         assert_eq!(e.feed(INSERT, 1).tap_instead, None);
         assert_eq!(e.feed(INSERT, 0).actions.unwrap()[0], Action::Backspace(6));
+    }
+
+    #[test]
+    fn alt_insert_converts_selection_and_clears_buffer() {
+        const ALT: u16 = 56;
+        let mut e = engine();
+        typed(&mut e, &GHBDTN);
+        e.feed(ALT, 1);
+        assert!(!e.feed(INSERT, 1).forward);
+        assert!(e.feed(INSERT, 0).actions.is_none(), "Alt still held");
+        assert_eq!(e.feed(ALT, 0).actions, Some(vec![Action::ConvertSelection]));
+        assert_eq!(
+            tap(&mut e, INSERT),
+            None,
+            "caret moved: nothing left to fix"
+        );
+    }
+
+    #[test]
+    fn selection_needs_two_layouts() {
+        const ALT: u16 = 56;
+        let mut e = engine();
+        e.set_layouts(1);
+        e.feed(ALT, 1);
+        e.feed(INSERT, 1);
+        e.feed(INSERT, 0);
+        assert_eq!(e.feed(ALT, 0).actions, None);
     }
 
     #[test]

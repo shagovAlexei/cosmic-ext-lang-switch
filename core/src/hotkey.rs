@@ -7,6 +7,7 @@ use std::str::FromStr;
 pub enum Scope {
     Word,
     Phrase,
+    Selection,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub struct Hotkey {
 pub struct Hotkeys {
     pub word: Hotkey,
     pub phrase: Hotkey,
+    pub selection: Hotkey,
 }
 
 /// Keys that make sense as a hotkey trigger (they type nothing).
@@ -117,12 +119,14 @@ impl fmt::Display for Hotkey {
 
 pub const DEFAULT_WORD: &str = "Insert";
 pub const DEFAULT_PHRASE: &str = "Super+Insert";
+pub const DEFAULT_SELECTION: &str = "Alt+Insert";
 
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
             word: DEFAULT_WORD.parse().expect("valid default"),
             phrase: DEFAULT_PHRASE.parse().expect("valid default"),
+            selection: DEFAULT_SELECTION.parse().expect("valid default"),
         }
     }
 }
@@ -135,6 +139,8 @@ impl Hotkeys {
             Some(Scope::Word)
         } else if hit(self.phrase) {
             Some(Scope::Phrase)
+        } else if hit(self.selection) {
+            Some(Scope::Selection)
         } else {
             None
         }

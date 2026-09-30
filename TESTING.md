@@ -22,6 +22,10 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | COSMIC Terminal, Firefox, LibreOffice: word + Insert | same; no `~` in the terminal |
 | gedit: `ghbdtn world`, caret after `ghbdtn`, Insert | `привет world` (Insert is swallowed, overwrite mode stays off) |
 | Super+Insert | launcher does not open |
+| gedit: select `ghbdtn vbh`, Alt+Insert | `привет мир`, panel shows RU |
+| gedit: select `руддщ`, Alt+Insert | `hello`, panel shows US |
+| gedit: select two lines of wrong-layout text, Alt+Insert | both lines converted, line break kept |
+| select text with an emoji, Alt+Insert (toggle off / on) | emoji dropped, rest converted / nothing happens |
 | Caps Lock | LED follows, as before |
 | normal typing, key repeat, media keys | no lag, nothing lost |
 | `kill -9` the daemon | keyboard keeps working (kernel drops the grab) |
@@ -46,3 +50,5 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `hotkey_is_swallowed_on_press_repeat_and_release` | Insert reaching apps (overwrite mode, `~` in terminals) |
 | `swallowed_hotkey_under_super_taps_f24` | a swallowed Super+Insert opening the COSMIC launcher |
 | `disabled_forwards_the_hotkey` | Insert being eaten while correction is switched off |
+| `latin_goes_to_next_layout`, `cyrillic_is_detected_even_if_current_layout_is_ru` | converting a selection in the wrong direction |
+| `us_and_russian_share_physical_keys` (daemon) | xkb tables mapping characters to the wrong keys |

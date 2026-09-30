@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::hotkey::{DEFAULT_PHRASE, DEFAULT_WORD, Hotkeys};
+use crate::hotkey::{DEFAULT_PHRASE, DEFAULT_SELECTION, DEFAULT_WORD, Hotkeys};
+use crate::selection::Unknown;
 use cosmic_config::{CosmicConfigEntry, cosmic_config_derive::CosmicConfigEntry};
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +13,9 @@ pub struct Config {
     pub enabled: bool,
     pub hotkey_word: String,
     pub hotkey_phrase: String,
+    pub hotkey_selection: String,
+    /// Retype nothing if the selection holds a character no layout can type.
+    pub abort_on_unknown: bool,
 }
 
 impl Default for Config {
@@ -20,6 +24,8 @@ impl Default for Config {
             enabled: true,
             hotkey_word: DEFAULT_WORD.into(),
             hotkey_phrase: DEFAULT_PHRASE.into(),
+            hotkey_selection: DEFAULT_SELECTION.into(),
+            abort_on_unknown: false,
         }
     }
 }
@@ -41,6 +47,16 @@ impl Config {
         Hotkeys {
             word: self.hotkey_word.parse().unwrap_or(d.word),
             phrase: self.hotkey_phrase.parse().unwrap_or(d.phrase),
+            selection: self.hotkey_selection.parse().unwrap_or(d.selection),
+        }
+    }
+
+    #[must_use]
+    pub fn unknown(&self) -> Unknown {
+        if self.abort_on_unknown {
+            Unknown::Abort
+        } else {
+            Unknown::Keep
         }
     }
 }
@@ -103,6 +119,21 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(c.hotkeys(), Hotkeys::default());
+    }
+
+    #[test]
+    fn selection_defaults() {
+        let c = Config::default();
+        assert_eq!(
+            c.hotkeys().selection,
+            "Alt+Insert".parse::<Hotkey>().unwrap()
+        );
+        assert_eq!(c.unknown(), Unknown::Keep);
+        let c = Config {
+            abort_on_unknown: true,
+            ..c
+        };
+        assert_eq!(c.unknown(), Unknown::Abort);
     }
 
     #[test]

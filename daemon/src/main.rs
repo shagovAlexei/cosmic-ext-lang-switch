@@ -2,6 +2,7 @@
 mod input;
 mod layout;
 mod service;
+mod tables;
 
 use cosmic_config::ConfigGet;
 use lsc::config::{COMP_ID, Xkb, labels};
@@ -9,11 +10,50 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, watch};
 
-fn comp_layouts() -> Vec<String> {
+fn comp_xkb() -> Xkb {
     cosmic_config::Config::new(COMP_ID, 1)
         .and_then(|c| c.get::<Xkb>("xkb_config"))
-        .map(|x| labels(&x))
         .unwrap_or_default()
+}
+
+fn comp_layouts() -> Vec<String> {
+    labels(&comp_xkb())
+}
+
+/// The primary selection (highlighted text).
+fn read_selection() -> Result<String, wl_clipboard_rs::paste::Error> {
+    use wl_clipboard_rs::paste::{ClipboardType, MimeType, Seat, get_contents};
+    let (mut pipe, _) = get_contents(ClipboardType::Primary, Seat::Unspecified, MimeType::Text)?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut pipe, &mut text)
+        .map_err(wl_clipboard_rs::paste::Error::PipeCreation)?;
+    Ok(text)
+}
+
+/// Delete the selection, switch to the other layout, retype it there.
+async fn selection_actions(
+    tables: &[lsc::selection::Table],
+    group: u32,
+    unknown: lsc::selection::Unknown,
+) -> Option<Vec<Action>> {
+    let read = tokio::task::spawn_blocking(read_selection);
+    let text = tokio::time::timeout(Duration::from_millis(300), read)
+        .await
+        .ok()?
+        .ok()?
+        .ok()?;
+    let (to, keys) = lsc::selection::convert(&text, tables, group, unknown)?;
+    if keys.len() < text.chars().count() {
+        log::warn!(
+            "selection: {} character(s) no layout can type were left out",
+            text.chars().count() - keys.len()
+        );
+    }
+    Some(vec![
+        Action::Backspace(1),
+        Action::SwitchLayout(to),
+        Action::Type(keys),
+    ])
 }
 
 /// Probes each backend through the same code the daemon uses. Exit code 1 if any is missing.
@@ -51,6 +91,20 @@ async fn check() -> i32 {
     );
     let names = comp_layouts();
     line("layouts", names.len() >= 2, names.join(","));
+    let sel = tokio::task::spawn_blocking(read_selection).await;
+    let missing = matches!(
+        sel,
+        Ok(Err(wl_clipboard_rs::paste::Error::MissingProtocol { .. }))
+    );
+    line(
+        "selection",
+        !missing,
+        if missing {
+            "no data-control protocol".into()
+        } else {
+            String::new()
+        },
+    );
     bad.min(1)
 }
 
@@ -85,6 +139,8 @@ async fn exec(
                     tokio::time::timeout(Duration::from_millis(300), group.wait_for(|x| x == g))
                         .await;
             }
+            // Expanded into the actions above before `exec` is called.
+            Action::ConvertSelection => {}
             Action::Type(strokes) => {
                 for s in strokes {
                     kb.stroke(*s)?;
@@ -144,6 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut config = load_config();
     let mut names = comp_layouts();
+    let mut tables = tables::build(&comp_xkb());
     let mut engine = Engine::new(config.hotkeys());
     engine.set_layouts(names.len() as u32);
     engine.set_enabled(config.enabled && status == "ok");
@@ -189,7 +246,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         log::error!("forward failed: {e}");
                     }
                 }
-                let Some(actions) = out.actions else { continue };
+                let Some(mut actions) = out.actions else { continue };
+                if actions == [Action::ConvertSelection] {
+                    let group = *group_rx.borrow();
+                    let Some(a) = selection_actions(&tables, group, config.unknown()).await else { continue };
+                    actions = a;
+                }
                 if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref())
                     && let Err(e) = exec(kb, l, &mut group_rx, &actions).await
                 {
@@ -207,6 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(()) = cfg_rx.recv() => {
                 config = load_config();
                 names = comp_layouts();
+                tables = tables::build(&comp_xkb());
                 engine.set_hotkeys(config.hotkeys());
                 engine.set_layouts(names.len() as u32);
                 engine.set_enabled(config.enabled && status == "ok");

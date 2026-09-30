@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Lang Switch
+Name[ru]=Переключатель раскладки
+Comment=Fix text typed in the wrong keyboard layout
+Comment[ru]=Исправляет текст, набранный не в той раскладке
+Exec=cosmic-ext-lang-switch
+Terminal=false
+Type=Application
+Icon=input-keyboard-symbolic
+Categories=COSMIC;
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto

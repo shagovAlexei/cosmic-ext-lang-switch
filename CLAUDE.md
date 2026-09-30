@@ -22,3 +22,18 @@ Spec: `docs/superpowers/specs/2026-09-30-lang-switch-phase-a-design.md`, plans: 
 - Never capture while the session is locked or in password fields. Note that COSMIC 1.0.9 doesn't update logind `LockedHint` on lock (reported by punto-rs).
 
 Prior art to learn from, not depend on: `netherguy4/punto-rs` (Rust, evdev/uinput, manual), `arumata/gswitch` (Go, double-Shift), `Shah-man/autoswitch` (auto mode, GPLv3).
+
+## Workflow
+
+All changes land through pull requests on GitHub (`shagovAlexei/cosmic-ext-lang-switch`): work on a feature branch, push it, open a PR against `main`. Never merge or commit to `main` locally.
+
+## Commands
+
+```bash
+just verify                                # fmt + clippy -D warnings + tests (what CI runs)
+just build-release && sudo just install    # then: systemctl --user enable --now cosmic-ext-lang-switch
+just run-daemon                            # daemon with RUST_LOG=info
+cosmic-ext-lang-switch-daemon --check      # probe input/uinput/layout protocol/layouts
+```
+
+Crates: `core` (pure logic, all tests live here), `daemon`, `applet`. In dependents the core crate is aliased `lsc` (a dependency named `core` would shadow Rust's `core`).

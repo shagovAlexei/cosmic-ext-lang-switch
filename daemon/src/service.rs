@@ -3,21 +3,28 @@ use crate::layout::Layout;
 use std::sync::Arc;
 
 pub struct Service {
-    pub layouts: Vec<String>,
+    /// (panel label, xkb layout code, description) per layout group.
+    pub layouts: Vec<(String, String, String)>,
     pub current: u32,
     pub status: String,
     pub layout: Option<Arc<Layout>>,
+    pub pause: tokio::sync::mpsc::UnboundedSender<bool>,
 }
 
 #[zbus::interface(name = "io.github.shagovAlexei.CosmicExtLangSwitch")]
 impl Service {
     fn set_layout(&self, index: u32) {
-        if let Some(l) = &self.layout {
+        if let Some(l) = &self.layout
+            && (index as usize) < self.layouts.len()
+        {
             l.set_group(index);
         }
     }
+    fn set_paused(&self, paused: bool) {
+        let _ = self.pause.send(paused);
+    }
     #[zbus(property)]
-    fn layouts(&self) -> Vec<String> {
+    fn layouts(&self) -> Vec<(String, String, String)> {
         self.layouts.clone()
     }
     #[zbus(property)]

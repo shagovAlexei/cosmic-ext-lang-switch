@@ -16,6 +16,7 @@ logind-zbus = "5"
 futures-util = "0.3"
 xkbcommon = "0.8"
 wl-clipboard-rs = "0.9"
+xkb-data = "0.2"
 tokio.workspace = true
 log.workspace = true
 simple_logger.workspace = true

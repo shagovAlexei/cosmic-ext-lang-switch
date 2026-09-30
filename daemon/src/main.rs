@@ -199,10 +199,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut config = load_config();
-    let mut names = comp_layouts();
+    let mut layouts = tables::describe(&comp_xkb());
     let mut tables = tables::build(&comp_xkb());
     let mut engine = Engine::new(config.hotkeys());
-    engine.set_layouts(names.len() as u32);
+    engine.set_layouts(layouts.len() as u32);
     engine.set_enabled(config.enabled && status == "ok");
     engine.on_group(*group_rx.borrow_and_update());
 
@@ -216,8 +216,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _app_watch = watch_cfg(APP_ID, Config::VERSION)?;
     let _comp_watch = watch_cfg(COMP_ID, 1)?;
 
+    let (pause_tx, mut pause_rx) = mpsc::unbounded_channel();
+    // A settings window may close mid-recording; never stay paused for long.
+    let mut pause_until: Option<tokio::time::Instant> = None;
     let service = Service {
-        layouts: names.clone(),
+        pause: pause_tx,
+        layouts: layouts.clone(),
         current: *group_rx.borrow(),
         status: status.into(),
         layout: layout.clone(),
@@ -268,13 +272,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(()) = cfg_rx.recv() => {
                 config = load_config();
-                names = comp_layouts();
+                layouts = tables::describe(&comp_xkb());
                 tables = tables::build(&comp_xkb());
                 engine.set_hotkeys(config.hotkeys());
-                engine.set_layouts(names.len() as u32);
+                engine.set_layouts(layouts.len() as u32);
                 engine.set_enabled(config.enabled && status == "ok");
-                let n = names.clone();
-                publish(&conn, |s| s.layouts = n).await?;
+                let l = layouts.clone();
+                publish(&conn, |s| s.layouts = l).await?;
+            }
+            Some(p) = pause_rx.recv() => {
+                engine.set_paused(p);
+                pause_until = p.then(|| tokio::time::Instant::now() + Duration::from_secs(30));
+            }
+            () = tokio::time::sleep_until(pause_until.unwrap_or_else(tokio::time::Instant::now)), if pause_until.is_some() => {
+                engine.set_paused(false);
+                pause_until = None;
+                log::info!("pause expired");
             }
             Some(()) = lock_rx.recv() => {
                 engine.reset();

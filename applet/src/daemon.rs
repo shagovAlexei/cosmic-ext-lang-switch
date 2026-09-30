@@ -87,6 +87,21 @@ pub async fn set_paused(paused: bool) {
     }
 }
 
+pub async fn set_active_app(app_id: String) {
+    // One shared connection: a new one per call could reorder rapid focus changes.
+    static CONN: tokio::sync::OnceCell<zbus::Connection> = tokio::sync::OnceCell::const_new();
+    let send = async {
+        let conn = CONN.get_or_try_init(zbus::Connection::session).await?;
+        LangSwitchProxy::new(conn)
+            .await?
+            .set_active_app(&app_id)
+            .await
+    };
+    if let Err(e) = send.await {
+        log::debug!("set_active_app: {e}");
+    }
+}
+
 pub fn load_config() -> Config {
     cosmic_config::Config::new(APP_ID, Config::VERSION)
         .map(|h| Config::get_entry(&h).unwrap_or_else(|(_, c)| c))

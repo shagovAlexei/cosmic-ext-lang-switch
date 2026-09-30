@@ -38,6 +38,12 @@ pub enum Message {
     SetAbortOnUnknown(bool),
     SetLanguage(usize),
     Reset(Slot),
+    Tab(widget::segmented_button::Entity),
+    SetAuto(bool),
+    NewApp(String),
+    AddApp,
+    RemoveApp(usize),
+    RemoveWord(usize),
     Done,
 }
 
@@ -49,6 +55,26 @@ pub struct SettingsApp {
     hint: Option<String>,
     /// Dropdown labels, rebuilt when the UI language changes.
     languages: Vec<String>,
+    tabs: widget::segmented_button::SingleSelectModel,
+    /// The app id being typed into the "add excluded app" field.
+    new_app: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Page {
+    General,
+    Auto,
+}
+
+/// Tab labels follow the UI language, so the model is rebuilt on a language change.
+fn tabs(active: Page) -> widget::segmented_button::SingleSelectModel {
+    let mut model = widget::segmented_button::ModelBuilder::default()
+        .insert(|b| b.text(fl!("tab-general")).data(Page::General))
+        .insert(|b| b.text(fl!("tab-auto")).data(Page::Auto))
+        .build();
+    let pos = u16::from(active == Page::Auto);
+    model.activate_position(pos);
+    model
 }
 
 /// Config values behind the language dropdown, in its order.
@@ -78,6 +104,56 @@ impl SettingsApp {
         Task::perform(daemon::set_paused(false), |()| {
             cosmic::action::app(Message::Done)
         })
+    }
+
+    fn page(&self) -> Page {
+        self.tabs
+            .active_data::<Page>()
+            .copied()
+            .unwrap_or(Page::General)
+    }
+
+    /// A list row: the text and a remove button.
+    fn removable<'a>(text: &'a str, on_remove: Message) -> Element<'a, Message> {
+        settings::item_row(vec![
+            widget::text::body(text)
+                .width(cosmic::iced::Length::Fill)
+                .into(),
+            widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
+                .on_press(on_remove)
+                .into(),
+        ])
+        .into()
+    }
+
+    fn auto_page(&self) -> Vec<Element<'_, Message>> {
+        let switch = settings::section().add(settings::item(
+            fl!("auto-enabled"),
+            widget::toggler(self.config.auto_enabled).on_toggle(Message::SetAuto),
+        ));
+        let mut apps = settings::section().title(fl!("auto-apps"));
+        for (i, app) in self.config.auto_excluded_apps.iter().enumerate() {
+            apps = apps.add(Self::removable(app, Message::RemoveApp(i)));
+        }
+        apps = apps.add(settings::item_row(vec![
+            widget::text_input(fl!("app-id-placeholder"), &self.new_app)
+                .on_input(Message::NewApp)
+                .on_submit(|_| Message::AddApp)
+                .into(),
+            widget::button::standard(fl!("add"))
+                .on_press(Message::AddApp)
+                .into(),
+        ]));
+        let mut words = settings::section().title(fl!("auto-words"));
+        if self.config.auto_exceptions.is_empty() {
+            words = words.add(settings::item_row(vec![
+                widget::text::caption(fl!("auto-words-empty")).into(),
+            ]));
+        }
+        for (i, word) in self.config.auto_exceptions.iter().enumerate() {
+            words = words.add(Self::removable(word, Message::RemoveWord(i)));
+        }
+        vec![switch.into(), apps.into(), words.into()]
     }
 
     fn hotkey_item(&self, title: String, slot: Slot) -> Element<'_, Message> {
@@ -153,6 +229,8 @@ impl Application for SettingsApp {
             recording: None,
             hint: None,
             languages: language_labels(),
+            tabs: tabs(Page::General),
+            new_app: String::new(),
         };
         app.set_header_title(fl!("settings-title"));
         let task = match app.core.main_window_id() {
@@ -181,6 +259,7 @@ impl Application for SettingsApp {
                 if c.language != self.config.language {
                     crate::i18n::init(&crate::i18n::requested(&c.language));
                     self.languages = language_labels();
+                    self.tabs = tabs(self.page());
                 }
                 self.config = c;
             }
@@ -238,6 +317,33 @@ impl Application for SettingsApp {
                 daemon::save_config(&self.config);
                 crate::i18n::init(&crate::i18n::requested(&self.config.language));
                 self.languages = language_labels();
+                self.tabs = tabs(self.page());
+            }
+            Message::Tab(id) => self.tabs.activate(id),
+            Message::SetAuto(on) => {
+                self.config.auto_enabled = on;
+                daemon::save_config(&self.config);
+            }
+            Message::NewApp(text) => self.new_app = text,
+            Message::AddApp => {
+                let app = self.new_app.trim().to_owned();
+                if !app.is_empty() && !self.config.auto_excluded_apps.contains(&app) {
+                    self.config.auto_excluded_apps.push(app);
+                    daemon::save_config(&self.config);
+                }
+                self.new_app.clear();
+            }
+            Message::RemoveApp(i) => {
+                if i < self.config.auto_excluded_apps.len() {
+                    self.config.auto_excluded_apps.remove(i);
+                    daemon::save_config(&self.config);
+                }
+            }
+            Message::RemoveWord(i) => {
+                if i < self.config.auto_exceptions.len() {
+                    self.config.auto_exceptions.remove(i);
+                    daemon::save_config(&self.config);
+                }
             }
             Message::Reset(slot) => {
                 self.assign(slot, default(slot).into());
@@ -286,8 +392,15 @@ impl Application for SettingsApp {
                     .into(),
                 widget::text::body(text).into(),
             ]));
-        let sections: Vec<Element<'_, Message>> =
-            vec![hotkeys.into(), behavior.into(), status.into()];
+        let mut sections: Vec<Element<'_, Message>> = vec![
+            widget::segmented_control::horizontal(&self.tabs)
+                .on_activate(Message::Tab)
+                .into(),
+        ];
+        match self.page() {
+            Page::General => sections.extend([hotkeys.into(), behavior.into(), status.into()]),
+            Page::Auto => sections.extend(self.auto_page()),
+        }
         widget::scrollable(settings::view_column(sections).padding([8, 16])).into()
     }
 }

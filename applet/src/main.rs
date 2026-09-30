@@ -3,6 +3,7 @@ mod daemon;
 mod i18n;
 mod panel;
 mod settings;
+mod toplevel;
 
 fn main() -> cosmic::iced::Result {
     simple_logger::SimpleLogger::new()

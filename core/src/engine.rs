@@ -20,6 +20,44 @@ pub enum Action {
     Type(Vec<Stroke>),
     /// Read the selection and retype it in the other layout (daemon-side).
     ConvertSelection,
+    /// An auto-correction was undone: never auto-correct this word again (persist it).
+    AddException(String),
+}
+
+/// Automatic correction on space: settings and the data it decides with.
+pub struct Auto {
+    pub enabled: bool,
+    /// The focused app is on the exclusion list (terminals, code editors).
+    pub app_excluded: bool,
+    pub model: crate::auto::Model,
+    pub veto: crate::auto::Veto,
+    /// Per layout group: which key types each character.
+    pub tables: Vec<crate::selection::Table>,
+    /// Words (as typed) the user undid: left alone from now on.
+    pub exceptions: Vec<String>,
+}
+
+impl Default for Auto {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            app_excluded: false,
+            model: crate::auto::Model::builtin(),
+            veto: crate::auto::Veto::default(),
+            tables: Vec::new(),
+            exceptions: Vec::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Auto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Auto")
+            .field("enabled", &self.enabled)
+            .field("app_excluded", &self.app_excluded)
+            .field("exceptions", &self.exceptions.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// What the daemon does with one key event from a grabbed keyboard.
@@ -32,14 +70,17 @@ pub struct Outcome {
     pub actions: Option<Vec<Action>>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Last {
     len: usize,
     from: u32,
+    /// Set for an auto-correction: the word as typed, remembered if undone.
+    auto_word: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct Engine {
+    pub auto: Auto,
     enabled: bool,
     hotkeys: Hotkeys,
     strokes: Vec<Stroke>,
@@ -53,12 +94,15 @@ pub struct Engine {
     swallowed: Vec<u16>,
     /// While a hotkey is being recorded in the settings window: forward every key.
     paused: bool,
+    /// Space was just pressed after a word: auto-correct on its release.
+    space_armed: bool,
 }
 
 impl Engine {
     #[must_use]
     pub fn new(hotkeys: Hotkeys) -> Self {
         Self {
+            auto: Auto::default(),
             enabled: true,
             hotkeys,
             strokes: Vec::new(),
@@ -70,6 +114,7 @@ impl Engine {
             expected: None,
             swallowed: Vec::new(),
             paused: false,
+            space_armed: false,
         }
     }
 
@@ -128,6 +173,7 @@ impl Engine {
     }
 
     pub fn reset(&mut self) {
+        self.space_armed = false;
         self.strokes.clear();
         self.last = None;
         self.pending = None;
@@ -158,6 +204,13 @@ impl Engine {
     }
 
     pub fn on_key(&mut self, code: u16, value: i32) -> Option<Vec<Action>> {
+        let armed = std::mem::take(&mut self.space_armed);
+        // Auto-correction runs on the space *release*: replaying while the physical
+        // key is down would make the kernel drop the replayed space press.
+        if code == keys::SPACE && value == 0 && armed && self.pending.is_none() && !self.mods.any()
+        {
+            return self.auto_correct();
+        }
         if let Some(m) = keys::modifier(code) {
             self.mods.set(m, value != 0);
             return self.fire_if_released(value);
@@ -185,6 +238,7 @@ impl Engine {
         }
         match keys::kind(code) {
             Kind::Printable => {
+                self.space_armed = code == keys::SPACE && value == 1;
                 self.last = None;
                 self.strokes.push(Stroke {
                     code,
@@ -201,6 +255,44 @@ impl Engine {
             Kind::Reset => self.reset(),
         }
         None
+    }
+
+    /// On space release: retype the word just finished (and its space) in the other
+    /// layout if it was clearly typed in the wrong one.
+    fn auto_correct(&mut self) -> Option<Vec<Action>> {
+        let a = &self.auto;
+        let group = self.group as usize;
+        if !a.enabled || a.app_excluded || self.layouts < 2 || group >= a.tables.len() {
+            return None;
+        }
+        let to = (self.group + 1) % self.layouts;
+        let (last, before) = self.strokes.split_last()?;
+        if last.code != keys::SPACE || to as usize >= a.tables.len() {
+            return None;
+        }
+        let start = before
+            .iter()
+            .rposition(|s| s.code == keys::SPACE)
+            .map_or(0, |i| i + 1);
+        let word = &before[start..];
+        let typed = crate::auto::render(word, &a.tables[group])?;
+        let other = crate::auto::render(word, &a.tables[to as usize])?;
+        if !crate::auto::should_convert(&typed, &other, &a.model, &a.veto, &a.exceptions) {
+            return None;
+        }
+        let len = word.len() + 1;
+        let tail = self.strokes[self.strokes.len() - len..].to_vec();
+        self.last = Some(Last {
+            len,
+            from: self.group,
+            auto_word: Some(typed.to_lowercase()),
+        });
+        self.expected = Some(to);
+        Some(vec![
+            Action::Backspace(len),
+            Action::SwitchLayout(to),
+            Action::Type(tail),
+        ])
     }
 
     /// Corrections run on a key release once no modifier is held, so a held
@@ -221,11 +313,16 @@ impl Engine {
         if let Some(last) = self.last.take() {
             let tail = self.strokes[self.strokes.len() - last.len..].to_vec();
             self.expected = Some(last.from);
-            return Some(vec![
+            let mut actions = vec![
                 Action::Backspace(last.len),
                 Action::SwitchLayout(last.from),
                 Action::Type(tail),
-            ]);
+            ];
+            if let Some(word) = last.auto_word {
+                self.auto.exceptions.push(word.clone());
+                actions.push(Action::AddException(word));
+            }
+            return Some(actions);
         }
         if self.layouts < 2 {
             return None;
@@ -242,6 +339,7 @@ impl Engine {
         self.last = Some(Last {
             len,
             from: self.group,
+            auto_word: None,
         });
         self.expected = Some(to);
         let tail = self.strokes[self.strokes.len() - len..].to_vec();
@@ -579,6 +677,134 @@ mod tests {
         e.switch_failed();
         // Text was retyped in the old layout, i.e. restored: fix it again, not undo.
         assert_eq!(tap(&mut e, INSERT).unwrap()[1], Action::SwitchLayout(1));
+    }
+
+    fn auto_engine() -> Engine {
+        let mut e = engine();
+        let s = |code, shift| Stroke { code, shift };
+        // g h b d t n / п р и в е т on the same keys, plus space.
+        let us: crate::selection::Table = [
+            ('g', s(34, false)),
+            ('h', s(35, false)),
+            ('b', s(48, false)),
+            ('d', s(32, false)),
+            ('t', s(20, false)),
+            ('n', s(49, false)),
+            (' ', s(keys::SPACE, false)),
+            (',', s(51, false)),
+        ]
+        .into();
+        let ru: crate::selection::Table = [
+            ('п', s(34, false)),
+            ('р', s(35, false)),
+            ('и', s(48, false)),
+            ('в', s(32, false)),
+            ('е', s(20, false)),
+            ('т', s(49, false)),
+            (' ', s(keys::SPACE, false)),
+            ('б', s(51, false)),
+        ]
+        .into();
+        e.auto.tables = vec![us, ru];
+        e.auto.enabled = true;
+        e
+    }
+
+    fn with_space(codes: &[u16]) -> Vec<Stroke> {
+        let mut v = strokes(codes);
+        v.push(Stroke {
+            code: keys::SPACE,
+            shift: false,
+        });
+        v
+    }
+
+    /// Space press and release; the correction comes on the release.
+    fn space(e: &mut Engine) -> Option<Vec<Action>> {
+        assert!(
+            e.on_key(keys::SPACE, 1).is_none(),
+            "never on the press: the key is still down"
+        );
+        e.on_key(keys::SPACE, 0)
+    }
+
+    #[test]
+    fn auto_corrects_when_space_is_released() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        assert_eq!(
+            space(&mut e),
+            Some(vec![
+                Action::Backspace(7),
+                Action::SwitchLayout(1),
+                Action::Type(with_space(&GHBDTN))
+            ])
+        );
+    }
+
+    #[test]
+    fn insert_after_auto_undoes_and_remembers_the_word() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        space(&mut e);
+        e.on_group(1);
+        assert_eq!(
+            tap(&mut e, INSERT),
+            Some(vec![
+                Action::Backspace(7),
+                Action::SwitchLayout(0),
+                Action::Type(with_space(&GHBDTN)),
+                Action::AddException("ghbdtn".into())
+            ])
+        );
+        e.on_group(0);
+        typed(&mut e, &GHBDTN);
+        assert_eq!(space(&mut e), None, "remembered as an exception");
+    }
+
+    #[test]
+    fn no_auto_while_a_modifier_is_held_at_space_release() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        e.on_key(keys::LEFTSHIFT, 1);
+        assert_eq!(space(&mut e), None);
+    }
+
+    #[test]
+    fn auto_needs_the_space_press_right_before_its_release() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        e.on_key(keys::SPACE, 1);
+        tap(&mut e, 34); // another key between press and release
+        assert_eq!(e.on_key(keys::SPACE, 0), None);
+    }
+
+    #[test]
+    fn auto_is_off_when_disabled_or_app_excluded() {
+        let mut e = auto_engine();
+        e.auto.enabled = false;
+        typed(&mut e, &GHBDTN);
+        assert_eq!(space(&mut e), None);
+        let mut e = auto_engine();
+        e.auto.app_excluded = true;
+        typed(&mut e, &GHBDTN);
+        assert_eq!(space(&mut e), None);
+    }
+
+    #[test]
+    fn auto_skips_words_ending_in_punctuation() {
+        // `,` and `б` share a key: retyping would turn "hello," into "руддщб".
+        let mut e = auto_engine();
+        typed(&mut e, &[34, 35, 48, 32, 20, 49, 51]);
+        assert_eq!(space(&mut e), None);
+    }
+
+    #[test]
+    fn auto_leaves_right_layout_words_alone() {
+        let mut e = auto_engine();
+        e.on_group(1);
+        typed(&mut e, &GHBDTN); // "привет" on the Russian layout
+        assert_eq!(space(&mut e), None);
     }
 
     #[test]

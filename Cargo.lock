@@ -1870,6 +1870,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gen-model"
+version = "0.0.0"
+dependencies = [
+ "cosmic-ext-lang-switch-core",
+]
+
+[[package]]
 name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

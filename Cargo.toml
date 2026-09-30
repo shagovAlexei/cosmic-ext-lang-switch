@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "daemon", "applet"]
+members = ["core", "daemon", "applet", "tools/gen-model"]
 
 [workspace.package]
 version = "0.1.0"

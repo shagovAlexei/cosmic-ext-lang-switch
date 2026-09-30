@@ -33,6 +33,32 @@ pub fn describe(cfg: &Xkb) -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// Dictionary words (hunspell stems, no affix expansion) that auto-correction must
+/// never touch when typed as-is. Returns the veto and how many words it holds; a
+/// missing dictionary just leaves that language unprotected.
+pub fn load_veto(dir: &std::path::Path) -> (lsc::auto::Veto, usize) {
+    let mut veto = lsc::auto::Veto::default();
+    let mut count = 0;
+    for (file, lang) in [
+        ("en_US.dic", lsc::auto::Lang::En),
+        ("ru_RU.dic", lsc::auto::Lang::Ru),
+    ] {
+        match std::fs::read_to_string(dir.join(file)) {
+            Ok(text) => {
+                let words: Vec<&str> = text
+                    .lines()
+                    .skip(1)
+                    .filter_map(|l| l.split('/').next())
+                    .collect();
+                count += words.len();
+                veto.extend(lang, words);
+            }
+            Err(e) => log::warn!("{file}: {e}; auto-correction has no dictionary veto for it"),
+        }
+    }
+    (veto, count)
+}
+
 /// One table per layout group: which printable key (plain or with Shift) types each
 /// character. Empty if xkb can't compile the config.
 pub fn build(cfg: &Xkb) -> Vec<Table> {
@@ -139,6 +165,22 @@ mod tests {
             variant: String::new(),
         });
         assert_eq!(d, [("ZZ".into(), "zz".into(), "zz".into())]);
+    }
+
+    #[test]
+    fn veto_reads_hunspell_stems() {
+        let dir = std::env::temp_dir().join(format!("lsw-veto-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("en_US.dic"), "2\nhello/MS\nGrep\n").unwrap();
+        let (veto, count) = load_veto(&dir);
+        assert_eq!(count, 2);
+        assert!(veto.contains(lsc::auto::Lang::En, "hello"));
+        assert!(veto.contains(lsc::auto::Lang::En, "grep"));
+        assert!(
+            !veto.contains(lsc::auto::Lang::Ru, "hello"),
+            "ru_RU.dic missing: empty"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

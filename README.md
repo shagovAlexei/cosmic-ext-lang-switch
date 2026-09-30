@@ -17,3 +17,5 @@ Then add "Lang Switch" in Settings → Desktop → Panel → Applets (restart th
 The daemon reads `/dev/input` and types through `/dev/uinput`: it needs the `input` group, so it cannot be a Flatpak.
 
 Security note: the udev rule gives the `input` group write access to `/dev/uinput`, so any process of that user can inject keystrokes.
+
+The daemon grabs keyboards (`EVIOCGRAB`) and forwards every key except the hotkey through its virtual keyboard, so the hotkey never reaches applications. If the daemon dies, the kernel releases the grab and the keyboard works directly again. With keyd configured, keyd holds the physical keyboard and this daemon grabs keyd's virtual keyboard instead.

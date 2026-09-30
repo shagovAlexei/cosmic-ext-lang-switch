@@ -123,7 +123,8 @@ async fn exec(
     layout: &layout::Layout,
     group: &mut watch::Receiver<u32>,
     actions: &[Action],
-) -> std::io::Result<()> {
+) -> std::io::Result<bool> {
+    let mut switched = true;
     for a in actions {
         match a {
             Action::Backspace(n) => {
@@ -134,10 +135,13 @@ async fn exec(
             }
             Action::SwitchLayout(g) => {
                 layout.set_group(*g);
-                // Replay only after the compositor applied the group.
-                let _ =
+                // Replay only after the compositor applied the group. If it never
+                // does, the replay retypes the text in the old layout: it comes back
+                // unchanged rather than garbled.
+                switched =
                     tokio::time::timeout(Duration::from_millis(300), group.wait_for(|x| x == g))
-                        .await;
+                        .await
+                        .is_ok_and(|r| r.is_ok());
             }
             // Expanded into the actions above before `exec` is called.
             Action::ConvertSelection => {}
@@ -149,7 +153,7 @@ async fn exec(
             }
         }
     }
-    Ok(())
+    Ok(switched)
 }
 
 fn load_config() -> Config {
@@ -158,7 +162,15 @@ fn load_config() -> Config {
         .unwrap_or_default()
 }
 
-async fn publish(conn: &zbus::Connection, f: impl FnOnce(&mut Service)) -> zbus::Result<()> {
+/// Updates D-Bus state. A failure only loses one property-change signal, so it
+/// is logged instead of taking the daemon (and the keyboard grab) down.
+async fn publish(conn: &zbus::Connection, f: impl FnOnce(&mut Service)) {
+    if let Err(e) = try_publish(conn, f).await {
+        log::warn!("D-Bus publish failed: {e}");
+    }
+}
+
+async fn try_publish(conn: &zbus::Connection, f: impl FnOnce(&mut Service)) -> zbus::Result<()> {
     let iface = conn.object_server().interface::<_, Service>(PATH).await?;
     let mut s = iface.get_mut().await;
     f(&mut s);
@@ -256,19 +268,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let Some(a) = selection_actions(&tables, group, config.unknown()).await else { continue };
                     actions = a;
                 }
-                if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref())
-                    && let Err(e) = exec(kb, l, &mut group_rx, &actions).await
-                {
-                    log::error!("replay failed: {e}");
+                if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref()) {
+                    match exec(kb, l, &mut group_rx, &actions).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::warn!("layout switch not confirmed within 300 ms; text left as typed");
+                            engine.switch_failed();
+                        }
+                        Err(e) => log::error!("replay failed: {e}"),
+                    }
                 }
                 let g = *group_rx.borrow_and_update();
                 engine.on_group(g);
-                publish(&conn, |s| s.current = g).await?;
+                publish(&conn, |s| s.current = g).await;
             }
             Ok(()) = group_rx.changed() => {
                 let g = *group_rx.borrow_and_update();
                 engine.on_group(g);
-                publish(&conn, |s| s.current = g).await?;
+                publish(&conn, |s| s.current = g).await;
             }
             Some(()) = cfg_rx.recv() => {
                 config = load_config();
@@ -278,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.set_layouts(layouts.len() as u32);
                 engine.set_enabled(config.enabled && status == "ok");
                 let l = layouts.clone();
-                publish(&conn, |s| s.layouts = l).await?;
+                publish(&conn, |s| s.layouts = l).await;
             }
             Some(p) = pause_rx.recv() => {
                 engine.set_paused(p);

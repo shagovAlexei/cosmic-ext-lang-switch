@@ -40,6 +40,8 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | settings: record, press the current hotkey (Insert) | it is captured, not swallowed by the daemon |
 | settings: record, press Esc / a letter / another action's combo | cancelled / hint, keeps recording / "already used" hint |
 | settings: Reset to defaults | Insert, Super+Insert, Alt+Insert |
+| settings window at its default size | everything fits without scrolling; a warning line shows only when the service has a problem |
+| settings: Language → Русский | window and popup switch to Russian at once |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
 
 ## Regression tests

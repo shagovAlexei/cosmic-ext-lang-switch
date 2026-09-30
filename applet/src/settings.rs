@@ -26,7 +26,6 @@ pub enum Message {
     Daemon(Daemon),
     Record(Slot),
     Key(Key, Modifiers),
-    SetEnabled(bool),
     SetAbortOnUnknown(bool),
     SetLanguage(usize),
     Reset,
@@ -200,10 +199,6 @@ impl Application for SettingsApp {
                 self.hint = None;
                 return self.stop_recording();
             }
-            Message::SetEnabled(on) => {
-                self.config.enabled = on;
-                daemon::save_config(&self.config);
-            }
             Message::SetAbortOnUnknown(on) => {
                 self.config.abort_on_unknown = on;
                 daemon::save_config(&self.config);
@@ -247,10 +242,6 @@ impl Application for SettingsApp {
         let behavior = settings::section()
             .title(fl!("section-behavior"))
             .add(settings::item(
-                fl!("enabled"),
-                widget::toggler(self.config.enabled).on_toggle(Message::SetEnabled),
-            ))
-            .add(settings::item(
                 fl!("language"),
                 widget::dropdown(
                     &self.languages,
@@ -262,16 +253,13 @@ impl Application for SettingsApp {
                 fl!("abort-on-unknown"),
                 widget::toggler(self.config.abort_on_unknown).on_toggle(Message::SetAbortOnUnknown),
             ));
-        let status = settings::section()
-            .title(fl!("section-status"))
-            .add(settings::item_row(vec![
-                widget::text::body(self.daemon.warning().unwrap_or_else(|| fl!("daemon-ok")))
-                    .into(),
-            ]));
-        widget::scrollable(
-            settings::view_column(vec![hotkeys.into(), behavior.into(), status.into()])
-                .padding([8, 16]),
-        )
-        .into()
+        // Only shown when something is wrong; the popup has the on/off switch.
+        let mut sections: Vec<Element<'_, Message>> = Vec::with_capacity(3);
+        if let Some(w) = self.daemon.warning() {
+            sections.push(widget::text::body(w).into());
+        }
+        sections.push(hotkeys.into());
+        sections.push(behavior.into());
+        widget::scrollable(settings::view_column(sections).padding([8, 16])).into()
     }
 }

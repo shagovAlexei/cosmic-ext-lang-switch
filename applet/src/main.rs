@@ -14,7 +14,7 @@ fn main() -> cosmic::iced::Result {
         .ok();
     i18n::init(&i18n::requested(&daemon::load_config().language));
     if std::env::args().any(|a| a == "--settings") {
-        let window = cosmic::app::Settings::default().size(cosmic::iced::Size::new(560.0, 720.0));
+        let window = cosmic::app::Settings::default().size(cosmic::iced::Size::new(560.0, 520.0));
         return cosmic::app::run::<settings::SettingsApp>(window, ());
     }
     cosmic::applet::run::<panel::Applet>(())

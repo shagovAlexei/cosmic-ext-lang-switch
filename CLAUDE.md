@@ -27,6 +27,8 @@ Prior art to learn from, not depend on: `netherguy4/punto-rs` (Rust, evdev/uinpu
 
 All changes land through pull requests on GitHub (`shagovAlexei/cosmic-ext-lang-switch`): work on a feature branch, push it, open a PR against `main`. Never merge or commit to `main` locally.
 
+**Never commit without the user's explicit confirmation.** Leave changes uncommitted so the user can review the diff, say what changed, and commit (or push / open a PR) only after they approve.
+
 ## Commands
 
 ```bash

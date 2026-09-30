@@ -51,6 +51,7 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `enter_clears_buffer_so_password_is_never_replayed` | replaying a typed password after Enter |
 | `phrase_fires_after_super_released` | held Super mixing with replayed keys |
 | `touch_resets_buffer` | Insert erasing text at a new touchpad-clicked position |
+| `failed_switch_is_forgotten`, `after_a_failed_switch_the_hotkey_corrects_again` | a lost layout switch making a later user switch look like ours, or the next Insert "undoing" a correction that never happened |
 | `external_group_change_resets_but_own_does_not` | stale buffer after Super+Space; broken undo |
 | `autorepeat_resets_buffer` | kernel autorepeat counts drifting from the app's own repeat, so Insert deletes extra text |
 | `stale_modifier_after_lock_is_cleared` | Super released while locked leaving the engine deaf after unlock |

@@ -139,6 +139,14 @@ impl Engine {
         self.pending = None;
     }
 
+    /// The layout switch of the last correction never happened. The replay then
+    /// retyped the text in the old layout, restoring it: forget both the switch
+    /// we waited for and the undo, so the next hotkey press corrects afresh.
+    pub fn switch_failed(&mut self) {
+        self.expected = None;
+        self.last = None;
+    }
+
     /// Active layout group reported by the compositor.
     pub fn on_group(&mut self, group: u32) {
         if self.expected == Some(group) {
@@ -195,8 +203,9 @@ impl Engine {
         None
     }
 
-    /// Corrections run only once every key is up, so a held modifier
-    /// (Super of Super+Insert) never mixes into the replayed keys.
+    /// Corrections run on a key release once no modifier is held, so a held
+    /// modifier (Super of Super+Insert) never mixes into the replayed keys.
+    /// Only modifiers are tracked: another key still held is not waited for.
     fn fire_if_released(&mut self, value: i32) -> Option<Vec<Action>> {
         if value != 0 || self.mods.any() {
             return None;
@@ -545,6 +554,31 @@ mod tests {
         typed(&mut e, &GHBDTN); // Super still held: a chord, nothing buffered
         e.feed(SUPER, 0);
         assert_eq!(tap(&mut e, INSERT), None);
+    }
+
+    #[test]
+    fn failed_switch_is_forgotten() {
+        let mut e = engine();
+        typed(&mut e, &GHBDTN);
+        tap(&mut e, INSERT); // plans a switch 0 -> 1 that never happens
+        e.switch_failed();
+        typed(&mut e, &GHBDTN);
+        e.on_group(1); // the user switches layout: must not pass for our own switch
+        assert_eq!(
+            tap(&mut e, INSERT),
+            None,
+            "external switch clears the buffer"
+        );
+    }
+
+    #[test]
+    fn after_a_failed_switch_the_hotkey_corrects_again() {
+        let mut e = engine();
+        typed(&mut e, &GHBDTN);
+        tap(&mut e, INSERT);
+        e.switch_failed();
+        // Text was retyped in the old layout, i.e. restored: fix it again, not undo.
+        assert_eq!(tap(&mut e, INSERT).unwrap()[1], Action::SwitchLayout(1));
     }
 
     #[test]

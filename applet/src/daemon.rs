@@ -101,33 +101,32 @@ pub fn save(set: impl FnOnce(&cosmic_config::Config) -> Result<bool, cosmic_conf
     }
 }
 
-/// Unless a daemon already runs, starts one next to our binary, handing it the panel's
-/// privileged Wayland connection (only there does cosmic-comp show a sandboxed process
-/// the layout, selection and focus protocols). When that daemon exits, so does the
-/// applet, with an error code: only then does the panel restart it, with a fresh
-/// connection, and the new instance starts a new daemon.
+/// Keeps a daemon running: whenever none owns the bus name, starts one next to our
+/// binary, handing it the panel's privileged Wayland connection (only there does
+/// cosmic-comp show a sandboxed process the layout, selection and focus protocols).
+/// Every applet instance waits for the name to go free, not only the one whose daemon
+/// runs: in Flatpak that daemon dies with its applet's sandbox. When the daemon we
+/// started exits, the applet exits with an error code: only then does the panel
+/// restart it, with a fresh connection (ours was used up), and it starts a new daemon.
 pub async fn run_daemon() {
     use std::os::fd::{FromRawFd, OwnedFd};
-    // Taken (and closed if unused) either way, so programs we launch don't inherit it.
-    let socket = lsc::fd::socket_fd(std::env::var("X_PRIVILEGED_WAYLAND_SOCKET").ok().as_deref())
-        // SAFETY: the panel passes this fd to us for exactly this use; checked open above.
-        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) });
-    let running = async {
-        let conn = zbus::Connection::session().await?;
-        let name = zbus::names::BusName::try_from(lsc::dbus::BUS_NAME)?;
-        let dbus = zbus::fdo::DBusProxy::new(&conn).await?;
-        Ok::<_, zbus::Error>(dbus.name_has_owner(name).await?)
-    };
-    if running.await.unwrap_or(false) {
-        return;
-    }
-    let Some(socket) = socket else {
+    // Taken now, so programs we launch don't inherit it (it isn't close-on-exec).
+    let Some(socket) =
+        lsc::fd::socket_fd(std::env::var("X_PRIVILEGED_WAYLAND_SOCKET").ok().as_deref())
+            // SAFETY: the panel passes this fd to us for exactly this use; checked open above.
+            .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
+    else {
         log::warn!("no privileged Wayland socket (not run by the panel): daemon not started");
         return;
     };
+    if let Err(e) = wait_until_no_daemon().await {
+        log::error!("watching for the daemon: {e}");
+        return;
+    }
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
+    let started = std::time::Instant::now();
     let spawned = tokio::process::Command::new(exe.with_file_name("cosmic-ext-lang-switch-daemon"))
         .stdin(std::process::Stdio::from(socket))
         .env(lsc::fd::DAEMON_WAYLAND_FD, "0")
@@ -135,11 +134,34 @@ pub async fn run_daemon() {
     match spawned {
         Ok(mut child) => {
             let status = child.wait().await;
-            log::warn!("daemon exited ({status:?}); restarting the applet");
+            let delay = restart_delay(started.elapsed());
+            log::warn!("daemon exited ({status:?}); restarting the applet in {delay:?}");
+            tokio::time::sleep(delay).await;
             std::process::exit(1);
         }
         Err(e) => log::error!("starting the daemon: {e}"),
     }
+}
+
+/// Returns once nobody owns the daemon's bus name (at once if nobody does).
+async fn wait_until_no_daemon() -> zbus::Result<()> {
+    use cosmic::iced::futures::StreamExt;
+    let conn = zbus::Connection::session().await?;
+    let dbus = zbus::fdo::DBusProxy::new(&conn).await?;
+    let name = zbus::names::BusName::try_from(lsc::dbus::BUS_NAME)?;
+    // Subscribe first, so a daemon exiting between the two calls isn't missed.
+    let mut changes = dbus
+        .receive_name_owner_changed_with_args(&[(0, lsc::dbus::BUS_NAME)])
+        .await?;
+    if !dbus.name_has_owner(name).await? {
+        return Ok(());
+    }
+    while let Some(change) = changes.next().await {
+        if change.args()?.new_owner().is_none() {
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 /// Starts a host program (cosmic-settings), from inside Flatpak too.
@@ -158,4 +180,29 @@ pub fn launch(program: impl AsRef<std::ffi::OsStr>, arg: &str) {
     let mut cmd = std::process::Command::new(program);
     cmd.arg(arg);
     tokio::spawn(cosmic::process::spawn(cmd));
+}
+
+/// How long to wait before exiting after the daemon died, having lived `lived`: one
+/// that dies at start would otherwise have the panel restart us in a tight loop.
+fn restart_delay(lived: std::time::Duration) -> std::time::Duration {
+    if lived < std::time::Duration::from_secs(10) {
+        std::time::Duration::from_secs(5)
+    } else {
+        std::time::Duration::ZERO
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restart_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn a_daemon_dying_at_start_delays_the_restart() {
+        assert_eq!(
+            restart_delay(Duration::from_millis(200)),
+            Duration::from_secs(5)
+        );
+        assert_eq!(restart_delay(Duration::from_secs(3600)), Duration::ZERO);
+    }
 }

@@ -309,7 +309,13 @@ impl Wayland {
             primary: primary.clone().unwrap_or_default(),
         };
         queue.roundtrip(&mut state)?;
-        std::thread::spawn(move || while queue.blocking_dispatch(&mut state).is_ok() {});
+        std::thread::spawn(move || {
+            while queue.blocking_dispatch(&mut state).is_ok() {}
+            // Without the connection the layout can't switch and focus goes unseen. Exit,
+            // releasing the keyboards: the applet that started us restarts both.
+            log::error!("Wayland connection lost; exiting");
+            std::process::exit(1);
+        });
         Ok(Self {
             conn,
             layout,

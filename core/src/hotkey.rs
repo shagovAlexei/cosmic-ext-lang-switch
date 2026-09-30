@@ -69,6 +69,19 @@ impl Mods {
     }
 }
 
+impl Hotkey {
+    /// A combination recorded in the settings window; `key` is the iced key name
+    /// (`Insert`, `F12`, `ContextMenu`, ...). `None` if the key can't be a hotkey.
+    #[must_use]
+    pub fn recorded(key: &str, mods: Mods) -> Option<Self> {
+        let name = if key == "ContextMenu" { "Menu" } else { key };
+        Some(Self {
+            mods,
+            key: key_code(name)?,
+        })
+    }
+}
+
 impl FromStr for Hotkey {
     type Err = String;
 
@@ -88,11 +101,7 @@ impl FromStr for Hotkey {
                 _ => return Err(format!("unknown modifier: {p}")),
             }
         }
-        let key = KEY_NAMES
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(key))
-            .map(|&(_, c)| c)
-            .ok_or_else(|| format!("unsupported key: {key}"))?;
+        let key = key_code(key).ok_or_else(|| format!("unsupported key: {key}"))?;
         Ok(Self { mods, key })
     }
 }
@@ -117,6 +126,15 @@ impl fmt::Display for Hotkey {
     }
 }
 
+/// The evdev code of a key usable as a hotkey trigger, by name (case-insensitive).
+#[must_use]
+pub fn key_code(name: &str) -> Option<u16> {
+    KEY_NAMES
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|&(_, c)| c)
+}
+
 pub const DEFAULT_WORD: &str = "Insert";
 pub const DEFAULT_PHRASE: &str = "Super+Insert";
 pub const DEFAULT_SELECTION: &str = "Alt+Insert";
@@ -132,6 +150,12 @@ impl Default for Hotkeys {
 }
 
 impl Hotkeys {
+    /// Two actions share one key combination (only the first would ever fire).
+    #[must_use]
+    pub fn conflict(&self) -> bool {
+        self.word == self.phrase || self.word == self.selection || self.phrase == self.selection
+    }
+
     #[must_use]
     pub fn matches(&self, key: u16, mods: Mods) -> Option<Scope> {
         let hit = |h: Hotkey| h.key == key && h.mods == mods;
@@ -182,6 +206,38 @@ mod tests {
         for s in ["Insert", "Super+Insert", "Super+Ctrl+Alt+Shift+F1"] {
             assert_eq!(s.parse::<Hotkey>().unwrap().to_string(), s);
         }
+    }
+
+    #[test]
+    fn key_names_resolve_for_recording() {
+        assert_eq!(key_code("f12"), Some(88));
+        assert_eq!(key_code("Insert"), Some(110));
+        assert_eq!(key_code("A"), None, "letters can't be hotkeys");
+    }
+
+    #[test]
+    fn recorded_keys_use_iced_names() {
+        let sup = Mods {
+            sup: true,
+            ..Mods::default()
+        };
+        assert_eq!(
+            Hotkey::recorded("Insert", sup),
+            Some("Super+Insert".parse().unwrap())
+        );
+        assert_eq!(
+            Hotkey::recorded("ContextMenu", Mods::default()),
+            Some("Menu".parse().unwrap())
+        );
+        assert_eq!(Hotkey::recorded("Tab", Mods::default()), None);
+    }
+
+    #[test]
+    fn duplicate_hotkeys_conflict() {
+        let mut h = Hotkeys::default();
+        assert!(!h.conflict());
+        h.phrase = h.word;
+        assert!(h.conflict());
     }
 
     #[test]

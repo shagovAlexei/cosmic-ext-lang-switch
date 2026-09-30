@@ -51,6 +51,8 @@ pub struct Engine {
     expected: Option<u32>,
     /// Hotkey keys whose press was swallowed; their repeats and release are too.
     swallowed: Vec<u16>,
+    /// While a hotkey is being recorded in the settings window: forward every key.
+    paused: bool,
 }
 
 impl Engine {
@@ -67,11 +69,27 @@ impl Engine {
             layouts: 0,
             expected: None,
             swallowed: Vec::new(),
+            paused: false,
         }
+    }
+
+    pub fn set_paused(&mut self, on: bool) {
+        self.paused = on;
+        self.reset();
     }
 
     /// Like `on_key`, plus whether the event may reach the compositor.
     pub fn feed(&mut self, code: u16, value: i32) -> Outcome {
+        if self.paused {
+            if let Some(m) = keys::modifier(code) {
+                self.mods.set(m, value != 0);
+            }
+            return Outcome {
+                forward: true,
+                tap_instead: None,
+                actions: None,
+            };
+        }
         let mut tap_instead = None;
         let swallow = if value == 1 {
             let hit = self.enabled && self.hotkeys.matches(code, self.mods).is_some();
@@ -499,6 +517,34 @@ mod tests {
         e.feed(INSERT, 1);
         e.feed(INSERT, 0);
         assert_eq!(e.feed(ALT, 0).actions, None);
+    }
+
+    #[test]
+    fn paused_forwards_the_hotkey_and_fixes_nothing() {
+        let mut e = engine();
+        typed(&mut e, &GHBDTN);
+        e.set_paused(true);
+        let press = e.feed(INSERT, 1);
+        assert!(press.forward && press.actions.is_none());
+        let release = e.feed(INSERT, 0);
+        assert!(release.forward && release.actions.is_none());
+        e.set_paused(false);
+        assert_eq!(
+            tap(&mut e, INSERT),
+            None,
+            "buffer from before the pause is gone"
+        );
+    }
+
+    #[test]
+    fn modifiers_are_tracked_while_paused() {
+        let mut e = engine();
+        e.set_paused(true);
+        e.feed(SUPER, 1);
+        e.set_paused(false);
+        typed(&mut e, &GHBDTN); // Super still held: a chord, nothing buffered
+        e.feed(SUPER, 0);
+        assert_eq!(tap(&mut e, INSERT), None);
     }
 
     #[test]

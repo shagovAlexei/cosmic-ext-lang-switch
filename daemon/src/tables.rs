@@ -1,10 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Per-layout character tables, built from the compositor's xkb config.
-use lsc::config::Xkb;
+use lsc::config::{Xkb, labels};
 use lsc::engine::Stroke;
 use lsc::keys::{Kind, kind};
 use lsc::selection::Table;
 use xkbcommon::xkb;
+
+/// Per layout group: (panel label, xkb layout code, human description from the xkb
+/// registry). A layout missing from the registry is described by its code.
+pub fn describe(cfg: &Xkb) -> Vec<(String, String, String)> {
+    let registry = xkb_data::all_keyboard_layouts().ok();
+    let mut variants = cfg.variant.split(',');
+    cfg.layout
+        .split(',')
+        .zip(labels(cfg))
+        .map(|(layout, label)| {
+            let variant = variants.next().unwrap_or("");
+            let entry = registry
+                .as_ref()
+                .and_then(|r| r.layouts().iter().find(|l| l.name() == layout));
+            let description = entry.map(|l| {
+                l.variants()
+                    .and_then(|vs| vs.iter().find(|v| v.name() == variant))
+                    .map_or(l.description(), |v| v.description())
+            });
+            (
+                label,
+                layout.to_owned(),
+                description.unwrap_or(layout).to_owned(),
+            )
+        })
+        .collect()
+}
 
 /// One table per layout group: which printable key (plain or with Shift) types each
 /// character. Empty if xkb can't compile the config.
@@ -88,6 +115,30 @@ mod tests {
                 shift: false
             }
         );
+    }
+
+    #[test]
+    fn layouts_are_described() {
+        let d = describe(&Xkb {
+            layout: "us,by".into(),
+            variant: ",ru".into(),
+        });
+        assert_eq!(
+            d,
+            [
+                ("US".into(), "us".into(), "English (US)".into()),
+                ("RU".into(), "by".into(), "Russian (Belarus)".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_layout_falls_back_to_its_code() {
+        let d = describe(&Xkb {
+            layout: "zz".into(),
+            variant: String::new(),
+        });
+        assert_eq!(d, [("ZZ".into(), "zz".into(), "zz".into())]);
     }
 
     #[test]

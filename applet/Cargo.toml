@@ -19,4 +19,4 @@ rust-embed = "8"
 git = "https://github.com/pop-os/libcosmic"
 rev = "ef490df50b0a05a21c494c3f75737581bf0b39d9"
 default-features = false
-features = ["applet", "tokio", "wayland"]
+features = ["applet", "tokio", "wayland", "winit", "process"]

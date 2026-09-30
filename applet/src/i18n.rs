@@ -16,6 +16,15 @@ pub fn init(requested_languages: &[LanguageIdentifier]) {
     }
 }
 
+/// Languages to load for the configured UI language (`""` = the desktop's).
+#[must_use]
+pub fn requested(language: &str) -> Vec<LanguageIdentifier> {
+    match language.parse() {
+        Ok(id) if !language.is_empty() => vec![id],
+        _ => i18n_embed::DesktopLanguageRequester::requested_languages(),
+    }
+}
+
 // Get the `Localizer` to be used for localizing this library.
 #[must_use]
 pub fn localizer() -> Box<dyn Localizer> {
@@ -46,4 +55,25 @@ macro_rules! fl {
     ($message_id:literal, $($args:expr),*) => {{
         i18n_embed_fl::fl!($crate::i18n::LANGUAGE_LOADER, $message_id, $($args), *)
    }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_language_wins() {
+        assert_eq!(
+            requested("ru"),
+            vec!["ru".parse::<LanguageIdentifier>().unwrap()]
+        );
+    }
+
+    #[test]
+    fn empty_follows_the_desktop() {
+        assert_eq!(
+            requested(""),
+            i18n_embed::DesktopLanguageRequester::requested_languages()
+        );
+    }
 }

@@ -14,6 +14,7 @@
     "--filesystem=xdg-config/cosmic:rw",
     "--filesystem=host-os:ro",
     "--own-name=io.github.shagovAlexei.CosmicExtLangSwitch",
+    "--own-name=io.github.shagovAlexei.CosmicExtLangSwitch.Settings",
     "--system-talk-name=org.freedesktop.login1",
     "--talk-name=org.freedesktop.Flatpak"
   ],

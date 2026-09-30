@@ -44,6 +44,18 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | settings: Language → Русский | window and popup switch to Russian at once |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
 
+### Auto-correction (turn it on first)
+
+| Scenario | Expected |
+|---|---|
+| Telegram / browser, US layout: `ghbdtn` + Space | `привет `, panel shows RU |
+| right after it, Insert | back to `ghbdtn `, US; the word appears under Settings → Auto-correction → words |
+| type `ghbdtn` + Space again | left alone (remembered exception) |
+| `hello world` + Space, `grep`, `http` | left alone |
+| COSMIC Terminal / VS Code: `ghbdtn` + Space | left alone (excluded app) |
+| `Pass1word`, `myVar`, `hello,` | left alone |
+| popup: turn "Auto-correct while typing" off | nothing is auto-corrected; Insert still works |
+
 ## Regression tests
 
 | Test | What it prevents |
@@ -64,3 +76,7 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `paused_forwards_the_hotkey_and_fixes_nothing` | the daemon swallowing the key being recorded in the settings window |
 | `duplicate_hotkeys_conflict` | two actions on one combination (only one could ever fire) |
 | `layouts_are_described` (daemon) | wrong names in the popup's layout list |
+| `tech_words_outside_dictionaries_are_left_alone` | `http` → `реез` and similar purpose-typed Latin being auto-corrected |
+| `auto_skips_words_ending_in_punctuation` | "hello," becoming "руддщб" (`,` and `б` share a key) |
+| `insert_after_auto_undoes_and_remembers_the_word` | an undone auto-correction happening again |
+| `veto_reads_hunspell_stems` (daemon) | dictionary words losing their protection |

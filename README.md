@@ -33,13 +33,27 @@ Open them from the gear button in the popup, or run `cosmic-ext-lang-switch --se
 
 Turn on "Auto-correct while typing" in the popup. When you finish a word with Space and it was clearly typed in the wrong layout, it is retyped in the other one. Press `Insert` right after to undo: the word is then remembered and never auto-corrected again.
 
-It leaves alone words shorter than 3 letters, words with digits or mixed case (`myVar`), words followed by punctuation, dictionary words (hunspell `en_US` / `ru_RU`), common technical words (`http`, `git`, `sudo`…), and anything typed in excluded apps. App exclusions need the applet in the panel: only panel applets are told which window is focused.
+It leaves alone words shorter than 3 letters, words with digits or mixed case (`myVar`), words followed by punctuation, dictionary words (hunspell `en_US` / `ru_RU`), common technical words (`http`, `git`, `sudo`…), and anything typed in excluded apps. App exclusions work when the service is started by the applet: only the panel's connection is told which window is focused.
 
 > **Passwords:** a password field can't be detected. A password of lowercase letters that reads like a word in the other layout may get auto-corrected. Keep auto-correction off if that matters to you, or exclude the app.
 
 ## Install
 
-Lang Switch needs a small background service that reads the keyboard (`/dev/input`) and types corrections through a virtual keyboard (`/dev/uinput`). Wayland gives applications no other way to do this, so it is installed from source and can't be a Flatpak.
+Lang Switch needs a small background service that reads the keyboard (`/dev/input`) and types corrections through a virtual keyboard (`/dev/uinput`); Wayland gives applications no other way to do this. The applet starts it. Either way you give your user keyboard access once.
+
+### Flatpak (COSMIC Store)
+
+Install "Lang Switch" from the COSMIC Store, then once:
+
+```sh
+sudo usermod -aG input $USER
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/60-cosmic-ext-lang-switch.rules
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+Log out and back in, and add "Lang Switch" to the panel. Flatpak can't set up keyboard access itself.
+
+### From source
 
 ```sh
 sudo apt install just pkg-config libxkbcommon-dev   # plus Rust from https://rustup.rs
@@ -47,10 +61,11 @@ git clone https://github.com/shagovAlexei/cosmic-ext-lang-switch
 cd cosmic-ext-lang-switch
 sudo usermod -aG input $USER                    # then log out and back in
 just build-release && sudo just install
-systemctl --user daemon-reload && systemctl --user enable --now cosmic-ext-lang-switch
 ```
 
-Then add **Lang Switch** in Settings → Desktop → Panel → Applets (run `killall cosmic-panel` if it isn't listed yet).
+Then add **Lang Switch** in Settings → Desktop → Panel → Applets (log out and back in if it isn't listed yet). The applet starts the service itself.
+
+Upgrading from a version with a systemd service: run `systemctl --user disable --now cosmic-ext-lang-switch` once.
 
 Check that everything works:
 
@@ -58,7 +73,7 @@ Check that everything works:
 cosmic-ext-lang-switch-daemon --check
 ```
 
-Uninstall: `systemctl --user disable --now cosmic-ext-lang-switch && sudo just uninstall`.
+Uninstall: remove the applet from the panel, then `sudo just uninstall`.
 
 ## Security
 
@@ -71,7 +86,7 @@ Uninstall: `systemctl --user disable --now cosmic-ext-lang-switch && sudo just u
 
 | Symptom | Fix |
 |---|---|
-| "Service is not running" | `systemctl --user status cosmic-ext-lang-switch`; logs: `journalctl --user -u cosmic-ext-lang-switch` |
+| "Service is not running" | Logs: `journalctl --user \| grep lang-switch`. Remove and re-add the applet, or log in again |
 | "No keyboard access" | Add yourself to `input` (see Install) and log out and back in |
 | A selection isn't fixed in a terminal | Terminal text isn't editable; use `Insert` / `Super+Insert` there |
 

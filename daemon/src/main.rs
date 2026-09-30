@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 mod input;
-mod layout;
 mod service;
 mod tables;
+mod wayland;
 
 use cosmic_config::ConfigGet;
 use lsc::config::{COMP_ID, Xkb, labels};
@@ -20,28 +20,19 @@ fn comp_layouts() -> Vec<String> {
     labels(&comp_xkb())
 }
 
-/// The primary selection (highlighted text).
-fn read_selection() -> Result<String, wl_clipboard_rs::paste::Error> {
-    use wl_clipboard_rs::paste::{ClipboardType, MimeType, Seat, get_contents};
-    let (mut pipe, _) = get_contents(ClipboardType::Primary, Seat::Unspecified, MimeType::Text)?;
-    let mut text = String::new();
-    std::io::Read::read_to_string(&mut pipe, &mut text)
-        .map_err(wl_clipboard_rs::paste::Error::PipeCreation)?;
-    Ok(text)
-}
-
 /// Delete the selection, switch to the other layout, retype it there.
 async fn selection_actions(
+    wl: &Arc<wayland::Wayland>,
     tables: &[lsc::selection::Table],
     group: u32,
     unknown: lsc::selection::Unknown,
 ) -> Option<Vec<Action>> {
-    let read = tokio::task::spawn_blocking(read_selection);
+    let wl = wl.clone();
+    let read = tokio::task::spawn_blocking(move || wl.read_selection());
     let text = tokio::time::timeout(Duration::from_millis(300), read)
         .await
         .ok()?
-        .ok()?
-        .ok()?;
+        .ok()??;
     let (to, keys) = lsc::selection::convert(&text, tables, group, unknown)?;
     if keys.len() < text.chars().count() {
         log::warn!(
@@ -80,30 +71,33 @@ async fn check() -> i32 {
         kb.err().map_or_else(String::new, |e| e.to_string()),
     );
     let (gtx, grx) = watch::channel(0);
-    let l = layout::Layout::connect(gtx);
+    let (ftx, _frx) = mpsc::unbounded_channel();
+    let wl = wayland::Wayland::connect(gtx, ftx);
     line(
         "layout",
-        l.is_ok(),
-        l.err().map_or_else(
-            || format!("current group {}", *grx.borrow()),
-            |e| e.to_string(),
-        ),
+        wl.as_ref().is_ok_and(wayland::Wayland::has_layout),
+        match &wl {
+            Ok(w) if w.has_layout() => format!("current group {}", *grx.borrow()),
+            Ok(_) => "no zcosmic_keyboard_layout_manager_v1 on this connection".into(),
+            Err(e) => e.to_string(),
+        },
     );
     let names = comp_layouts();
     line("layouts", names.len() >= 2, names.join(","));
-    let sel = tokio::task::spawn_blocking(read_selection).await;
-    let missing = matches!(
-        sel,
-        Ok(Err(wl_clipboard_rs::paste::Error::MissingProtocol { .. }))
-    );
+    let sel = wl.as_ref().is_ok_and(wayland::Wayland::has_selection);
     line(
         "selection",
-        !missing,
-        if missing {
-            "no data-control protocol".into()
-        } else {
+        sel,
+        if sel {
             String::new()
+        } else {
+            "no ext_data_control_manager_v1 on this connection".into()
         },
+    );
+    line(
+        "focus",
+        wl.as_ref().is_ok_and(wayland::Wayland::has_focus),
+        "app exclusions need the privileged connection (daemon started by the applet)".into(),
     );
     bad.min(1)
 }
@@ -120,7 +114,7 @@ const TAP: Duration = Duration::from_millis(3);
 
 async fn exec(
     kb: &mut input::Keyboard,
-    layout: &layout::Layout,
+    layout: &wayland::Wayland,
     group: &mut watch::Receiver<u32>,
     actions: &[Action],
 ) -> std::io::Result<bool> {
@@ -220,10 +214,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .env()
         .init()?;
 
+    // First, before any grab: a second daemon (another panel's applet started it too)
+    // must leave the keyboard alone. A taken name comes back as a reply, not an error
+    // (so `Builder::name` would let us through).
+    let conn = zbus::Connection::session().await?;
+    let reply = conn
+        .request_name_with_flags(BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into())
+        .await?;
+    if reply != zbus::fdo::RequestNameReply::PrimaryOwner {
+        log::info!("another daemon owns {BUS_NAME} ({reply:?}); exiting");
+        return Ok(());
+    }
+
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
     let seen: input::Seen = Arc::default();
     // Before grabbing keyboards: loading takes ~0.1 s and would stall typing.
-    let (veto, words) = tables::load_veto(std::path::Path::new("/usr/share/hunspell"));
+    // Inside Flatpak the host's dictionaries are under /run/host (--filesystem=host-os:ro).
+    let dict = ["/usr/share/hunspell", "/run/host/usr/share/hunspell"]
+        .map(std::path::Path::new)
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or(std::path::Path::new("/usr/share/hunspell"));
+    let (veto, words) = tables::load_veto(dict);
     log::info!("auto-correction dictionary veto: {words} words");
     // The virtual keyboard must exist before any keyboard is grabbed: it forwards their keys.
     let mut keyboard = input::Keyboard::new()
@@ -232,10 +244,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grab = keyboard.is_some();
     let devices = input::spawn_new_devices(&seen, &key_tx, grab);
     let (group_tx, mut group_rx) = watch::channel(0);
-    let layout = layout::Layout::connect(group_tx)
-        .inspect_err(|e| log::error!("layout protocol: {e}"))
+    let (app_tx, mut app_rx) = mpsc::unbounded_channel();
+    let wl = wayland::Wayland::connect(group_tx, app_tx)
+        .inspect_err(|e| log::error!("wayland: {e}"))
         .ok()
         .map(Arc::new);
+    let layout = wl.clone().filter(|w| w.has_layout());
     let status = match (devices > 0 && keyboard.is_some(), layout.is_some()) {
         (false, _) => "no-input-access",
         (true, false) => "no-layout-protocol",
@@ -251,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.on_group(*group_rx.borrow_and_update());
     engine.auto.veto = veto;
     engine.auto.tables.clone_from(&tables);
-    // Set by the applet over D-Bus; empty until it reports (then nothing is excluded).
+    // From the compositor's focus events; empty until the first one (then nothing is excluded).
     let mut active_app = String::new();
     apply_auto(&mut engine, &config, &active_app);
 
@@ -268,20 +282,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (pause_tx, mut pause_rx) = mpsc::unbounded_channel();
     // A settings window may close mid-recording; never stay paused for long.
     let mut pause_until: Option<tokio::time::Instant> = None;
-    let (app_tx, mut app_rx) = mpsc::unbounded_channel();
     let service = Service {
         pause: pause_tx,
-        active_app: app_tx,
         layouts: layouts.clone(),
         current: *group_rx.borrow(),
         status: status.into(),
         layout: layout.clone(),
     };
-    let conn = zbus::connection::Builder::session()?
-        .name(BUS_NAME)?
-        .serve_at(PATH, service)?
-        .build()
-        .await?;
+    conn.object_server().at(PATH, service).await?;
 
     let (lock_tx, mut lock_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
@@ -304,7 +312,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(mut actions) = out.actions else { continue };
                 if actions == [Action::ConvertSelection] {
                     let group = *group_rx.borrow();
-                    let Some(a) = selection_actions(&tables, group, config.unknown()).await else { continue };
+                    let Some(w) = wl.as_ref() else { continue };
+                    let Some(a) = selection_actions(w, &tables, group, config.unknown()).await else { continue };
                     actions = a;
                 }
                 if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref()) {
@@ -358,7 +367,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.reset();
                 engine.release_mods();
                 // No Unlock signal on COSMIC: auto-correction stays off (the lock screen
-                // takes passwords) until the applet reports a focused window again.
+                // takes passwords) until a window gains focus again.
                 engine.auto.app_excluded = true;
                 log::info!("session locked: buffer cleared, auto-correction suspended");
             }

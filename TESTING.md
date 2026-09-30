@@ -6,7 +6,7 @@
 cosmic-ext-lang-switch-daemon --check
 ```
 
-Prints `ok` / `MISSING` for input devices (group `input`), uinput, the COSMIC layout protocol and the configured layouts. Paste its output into any bug report.
+Prints `ok` / `MISSING` for input devices (group `input`), uinput, the COSMIC layout protocol, the configured layouts, primary selection and focus tracking. Run by hand it uses `WAYLAND_DISPLAY`; under the panel the daemon gets the applet's privileged connection instead. Paste its output into any bug report.
 
 ## 2. `just verify`: fmt + clippy `-D warnings` + unit tests
 
@@ -56,6 +56,22 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `Pass1word`, `myVar`, `hello,` | left alone |
 | popup: turn "Auto-correct while typing" off | nothing is auto-corrected; Insert still works |
 
+### Service lifecycle and Flatpak
+
+Source install: `sudo just install`, re-add the applet (or log in again). Flatpak: `flatpak-builder --user --install --force-clean build-dir flatpak/io.github.shagovAlexei.cosmic-ext-lang-switch.json`, `sudo just uninstall` first, then add the applet.
+
+| Check | Expected |
+|---|---|
+| `pgrep -af lang-switch-daemon` | exactly one daemon, child of the applet |
+| Two monitors (or panel + dock with the applet) | still one daemon; typing not doubled |
+| `pkill -f lang-switch-daemon` | the applet exits with an error, the panel restarts it, a new daemon within a few seconds; Insert works |
+| Second daemon by hand: `cosmic-ext-lang-switch-daemon` | exits at once: `NameTaken` |
+| Keyboard / Region buttons in the popup (Flatpak) | cosmic-settings opens on that page |
+| Popup layouts (Flatpak) | "Russian (Belarus) / by" as on the host |
+| `hello` + Space with auto-correction on (Flatpak) | untouched: host dictionaries are read from `/run/host` |
+| Lock, unlock, type (Flatpak) | buffer cleared on lock (log line), auto resumes after focusing a window |
+| Flatpak `--check`: `flatpak run --command=cosmic-ext-lang-switch-daemon io.github.shagovAlexei.cosmic-ext-lang-switch --check` | input/uinput/layouts ok; layout/selection MISSING is expected (no privileged socket from `flatpak run`) |
+
 ## Regression tests
 
 | Test | What it prevents |
@@ -83,3 +99,4 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `insert_after_auto_undoes_and_remembers_the_word` | an undone auto-correction happening again |
 | `veto_reads_hunspell_stems` (daemon) | dictionary words losing their protection |
 | `colloquial_russian_outside_dictionaries_is_left_alone` | `щас` becoming `ofc` |
+| `socket_fd_accepts_only_an_open_socket` (core) | the daemon aborting on a stale `X_PRIVILEGED_WAYLAND_SOCKET` inherited from a panel-launched program |

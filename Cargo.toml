@@ -15,4 +15,9 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 log = "0.4"
 simple_logger = "5"
-cosmic-config = { git = "https://github.com/pop-os/libcosmic", rev = "ef490df50b0a05a21c494c3f75737581bf0b39d9", default-features = false, features = ["macro"] }
+# libcosmic is pinned in Cargo.lock (ef490df50b0a05a21c494c3f75737581bf0b39d9), not with
+# `rev`: cosmic-panel-config (libcosmic's applet feature) depends on it without a rev,
+# and a `rev` here would make a second copy that the Flatpak's vendored sources can't hold.
+# Move it with: cargo update -p libcosmic --precise <commit>
+cosmic-config = { git = "https://github.com/pop-os/libcosmic", default-features = false, features = ["macro"] }
+

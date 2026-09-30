@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::layout::Layout;
+use crate::wayland::Wayland;
 use std::sync::Arc;
 
 pub struct Service {
@@ -7,9 +7,8 @@ pub struct Service {
     pub layouts: Vec<(String, String, String)>,
     pub current: u32,
     pub status: String,
-    pub layout: Option<Arc<Layout>>,
+    pub layout: Option<Arc<Wayland>>,
     pub pause: tokio::sync::mpsc::UnboundedSender<bool>,
-    pub active_app: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
 #[zbus::interface(name = "io.github.shagovAlexei.CosmicExtLangSwitch")]
@@ -23,9 +22,6 @@ impl Service {
     }
     fn set_paused(&self, paused: bool) {
         let _ = self.pause.send(paused);
-    }
-    fn set_active_app(&self, app_id: String) {
-        let _ = self.active_app.send(app_id);
     }
     #[zbus(property)]
     fn layouts(&self) -> Vec<(String, String, String)> {
@@ -49,7 +45,21 @@ pub async fn lock_signals(tx: tokio::sync::mpsc::UnboundedSender<()>) -> zbus::R
     let conn = zbus::Connection::system().await?;
     let manager = logind_zbus::manager::ManagerProxy::new(&conn).await?;
     // "auto" resolves to the user's display session even from a systemd --user unit.
-    let path = manager.get_session("auto").await?;
+    // "auto" resolves the caller's session; from a Flatpak sandbox it may not, so fall
+    // back to this user's session on seat0.
+    let path = match manager.get_session("auto").await {
+        Ok(p) => p,
+        Err(e) => {
+            let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata("/proc/self")?);
+            manager
+                .list_sessions()
+                .await?
+                .into_iter()
+                .find(|s| s.uid() == uid && s.seat() == "seat0")
+                .map(|s| s.path().clone())
+                .ok_or(e)?
+        }
+    };
     let session = logind_zbus::session::SessionProxy::builder(&conn)
         .path(path)?
         .build()

@@ -20,18 +20,18 @@ prefix := '/usr'
 build-release:
     cargo build --release -p {{name}} -p {{name}}-daemon
 
-# sudo just install; then: systemctl --user daemon-reload && systemctl --user enable --now {{name}}
+# sudo just install; the applet starts the daemon (re-add it to the panel or log in again)
 install:
     install -Dm0755 target/release/{{name}} {{prefix}}/bin/{{name}}
     install -Dm0755 target/release/{{name}}-daemon {{prefix}}/bin/{{name}}-daemon
     install -Dm0644 res/{{APPID}}.desktop {{prefix}}/share/applications/{{APPID}}.desktop
     install -Dm0644 res/{{APPID}}.metainfo.xml {{prefix}}/share/metainfo/{{APPID}}.metainfo.xml
-    install -Dm0644 res/{{name}}.service {{prefix}}/lib/systemd/user/{{name}}.service
+    rm -f {{prefix}}/lib/systemd/user/{{name}}.service  # left by versions before 0.1.0
     install -Dm0644 res/60-{{name}}.rules {{prefix}}/lib/udev/rules.d/60-{{name}}.rules
     udevadm control --reload && udevadm trigger --sysname-match=uinput
 
 uninstall:
-    rm -f {{prefix}}/bin/{{name}} {{prefix}}/bin/{{name}}-daemon {{prefix}}/share/applications/{{APPID}}.desktop {{prefix}}/share/metainfo/{{APPID}}.metainfo.xml {{prefix}}/lib/systemd/user/{{name}}.service {{prefix}}/lib/udev/rules.d/60-{{name}}.rules
+    rm -f {{prefix}}/bin/{{name}} {{prefix}}/bin/{{name}}-daemon {{prefix}}/share/applications/{{APPID}}.desktop {{prefix}}/share/metainfo/{{APPID}}.metainfo.xml {{prefix}}/lib/udev/rules.d/60-{{name}}.rules
 
 run-daemon:
     env RUST_LOG=info cargo run -p {{name}}-daemon

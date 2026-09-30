@@ -65,7 +65,7 @@
   <releases>
     <release version="0.1.0" date="2026-10-01">
       <description>
-        <p>First release: manual fixing of word, phrase and selection; auto-correction on Space; settings window.</p>
+        <p>First release: manual fixing of word, phrase and selection; auto-correction on Space; settings window. The applet starts the background service; no systemd unit.</p>
       </description>
     </release>
   </releases>

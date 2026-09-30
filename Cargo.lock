@@ -1020,6 +1020,7 @@ dependencies = [
  "simple_logger",
  "tokio",
  "wayland-client",
+ "wayland-protocols",
  "wl-clipboard-rs",
  "xkb-data",
  "xkbcommon 0.8.0",

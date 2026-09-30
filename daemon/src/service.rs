@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::layout::Layout;
+use crate::wayland::Wayland;
 use std::sync::Arc;
 
 pub struct Service {
@@ -7,7 +7,7 @@ pub struct Service {
     pub layouts: Vec<(String, String, String)>,
     pub current: u32,
     pub status: String,
-    pub layout: Option<Arc<Layout>>,
+    pub layout: Option<Arc<Wayland>>,
     pub pause: tokio::sync::mpsc::UnboundedSender<bool>,
     pub active_app: tokio::sync::mpsc::UnboundedSender<String>,
 }

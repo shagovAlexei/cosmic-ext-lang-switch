@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 mod input;
-mod layout;
 mod service;
 mod tables;
+mod wayland;
 
 use cosmic_config::ConfigGet;
 use lsc::config::{COMP_ID, Xkb, labels};
@@ -80,14 +80,16 @@ async fn check() -> i32 {
         kb.err().map_or_else(String::new, |e| e.to_string()),
     );
     let (gtx, grx) = watch::channel(0);
-    let l = layout::Layout::connect(gtx);
+    let (ftx, _frx) = mpsc::unbounded_channel();
+    let wl = wayland::Wayland::connect(gtx, ftx);
     line(
         "layout",
-        l.is_ok(),
-        l.err().map_or_else(
-            || format!("current group {}", *grx.borrow()),
-            |e| e.to_string(),
-        ),
+        wl.as_ref().is_ok_and(wayland::Wayland::has_layout),
+        match &wl {
+            Ok(w) if w.has_layout() => format!("current group {}", *grx.borrow()),
+            Ok(_) => "no zcosmic_keyboard_layout_manager_v1 on this connection".into(),
+            Err(e) => e.to_string(),
+        },
     );
     let names = comp_layouts();
     line("layouts", names.len() >= 2, names.join(","));
@@ -120,7 +122,7 @@ const TAP: Duration = Duration::from_millis(3);
 
 async fn exec(
     kb: &mut input::Keyboard,
-    layout: &layout::Layout,
+    layout: &wayland::Wayland,
     group: &mut watch::Receiver<u32>,
     actions: &[Action],
 ) -> std::io::Result<bool> {
@@ -232,10 +234,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grab = keyboard.is_some();
     let devices = input::spawn_new_devices(&seen, &key_tx, grab);
     let (group_tx, mut group_rx) = watch::channel(0);
-    let layout = layout::Layout::connect(group_tx)
-        .inspect_err(|e| log::error!("layout protocol: {e}"))
+    let (app_tx, mut app_rx) = mpsc::unbounded_channel();
+    let wl = wayland::Wayland::connect(group_tx, app_tx.clone())
+        .inspect_err(|e| log::error!("wayland: {e}"))
         .ok()
         .map(Arc::new);
+    let layout = wl.clone().filter(|w| w.has_layout());
     let status = match (devices > 0 && keyboard.is_some(), layout.is_some()) {
         (false, _) => "no-input-access",
         (true, false) => "no-layout-protocol",
@@ -268,7 +272,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (pause_tx, mut pause_rx) = mpsc::unbounded_channel();
     // A settings window may close mid-recording; never stay paused for long.
     let mut pause_until: Option<tokio::time::Instant> = None;
-    let (app_tx, mut app_rx) = mpsc::unbounded_channel();
     let service = Service {
         pause: pause_tx,
         active_app: app_tx,

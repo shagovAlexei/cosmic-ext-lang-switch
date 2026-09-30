@@ -10,6 +10,7 @@ lsc = { package = "cosmic-ext-lang-switch-core", path = "../core" }
 cosmic-config.workspace = true
 evdev = { version = "0.13", features = ["tokio"] }
 wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 cosmic-protocols = { git = "https://github.com/pop-os/cosmic-protocols", rev = "32283d7", default-features = false, features = ["client"] }
 zbus.workspace = true
 logind-zbus = "5"

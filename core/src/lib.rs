@@ -9,3 +9,4 @@ pub mod auto;
 pub mod config;
 pub mod dbus;
 pub mod engine;
+pub mod fd;

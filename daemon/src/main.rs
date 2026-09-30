@@ -169,18 +169,17 @@ fn save_exceptions(actions: &[Action]) {
         return;
     }
     let mut config = load_config();
-    let mut changed = false;
+    let mut words = config.auto_exceptions.clone();
     for a in actions {
         if let Action::AddException(word) = a
-            && !config.auto_exceptions.contains(word)
+            && !words.contains(word)
         {
-            config.auto_exceptions.push(word.clone());
-            changed = true;
+            words.push(word.clone());
         }
     }
-    if changed
-        && let Err(e) =
-            cosmic_config::Config::new(APP_ID, Config::VERSION).map(|h| config.write_entry(&h))
+    // Only this field: the settings window may be writing others right now.
+    if let Err(e) = cosmic_config::Config::new(APP_ID, Config::VERSION)
+        .and_then(|h| config.set_auto_exceptions(&h, words))
     {
         log::warn!("saving auto-correction exceptions: {e:?}");
     }

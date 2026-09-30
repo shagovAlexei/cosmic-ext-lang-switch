@@ -137,8 +137,7 @@ impl Application for Applet {
             // Already sent to the daemon by the subscription; kept for a daemon restart.
             Message::ActiveApp(app) => self.active_app = Some(app),
             Message::SetAuto(on) => {
-                self.config.auto_enabled = on;
-                daemon::save_config(&self.config);
+                daemon::save(|h| self.config.set_auto_enabled(h, on));
             }
             Message::SetLayout(i) => {
                 return Task::perform(daemon::set_layout(i), |()| {
@@ -146,8 +145,7 @@ impl Application for Applet {
                 });
             }
             Message::SetEnabled(on) => {
-                self.config.enabled = on;
-                daemon::save_config(&self.config);
+                daemon::save(|h| self.config.set_enabled(h, on));
             }
             Message::Open(what) => {
                 match what {

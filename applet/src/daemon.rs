@@ -108,10 +108,10 @@ pub fn load_config() -> Config {
         .unwrap_or_default()
 }
 
-pub fn save_config(config: &Config) {
-    if let Ok(h) = cosmic_config::Config::new(APP_ID, Config::VERSION)
-        && let Err(e) = config.write_entry(&h)
-    {
+/// Writes one field (`|h| config.set_x(h, v)`), never the whole config: the daemon,
+/// the popup and the settings window each hold their own copy, possibly stale.
+pub fn save(set: impl FnOnce(&cosmic_config::Config) -> Result<bool, cosmic_config::Error>) {
+    if let Err(e) = cosmic_config::Config::new(APP_ID, Config::VERSION).and_then(|h| set(&h)) {
         log::error!("config write: {e:?}");
     }
 }

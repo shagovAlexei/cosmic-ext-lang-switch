@@ -42,8 +42,8 @@ pub enum Message {
     SetAuto(bool),
     NewApp(String),
     AddApp,
-    RemoveApp(usize),
-    RemoveWord(usize),
+    RemoveApp(String),
+    RemoveWord(String),
     Done,
 }
 
@@ -94,7 +94,8 @@ impl SettingsApp {
             return false;
         }
         self.config = candidate;
-        daemon::save_config(&self.config);
+        let value = field(&mut self.config, slot).clone();
+        daemon::save(|h| cosmic::cosmic_config::ConfigSet::set(h, key(slot), value).map(|()| true));
         self.hint = None;
         true
     }
@@ -132,8 +133,8 @@ impl SettingsApp {
             widget::toggler(self.config.auto_enabled).on_toggle(Message::SetAuto),
         ));
         let mut apps = settings::section().title(fl!("auto-apps"));
-        for (i, app) in self.config.auto_excluded_apps.iter().enumerate() {
-            apps = apps.add(Self::removable(app, Message::RemoveApp(i)));
+        for app in &self.config.auto_excluded_apps {
+            apps = apps.add(Self::removable(app, Message::RemoveApp(app.clone())));
         }
         apps = apps.add(settings::item_row(vec![
             widget::text_input(fl!("app-id-placeholder"), &self.new_app)
@@ -150,8 +151,8 @@ impl SettingsApp {
                 widget::text::caption(fl!("auto-words-empty")).into(),
             ]));
         }
-        for (i, word) in self.config.auto_exceptions.iter().enumerate() {
-            words = words.add(Self::removable(word, Message::RemoveWord(i)));
+        for word in &self.config.auto_exceptions {
+            words = words.add(Self::removable(word, Message::RemoveWord(word.clone())));
         }
         vec![switch.into(), apps.into(), words.into()]
     }
@@ -187,6 +188,15 @@ fn field(config: &mut Config, slot: Slot) -> &mut String {
         Slot::Word => &mut config.hotkey_word,
         Slot::Phrase => &mut config.hotkey_phrase,
         Slot::Selection => &mut config.hotkey_selection,
+    }
+}
+
+/// The config entry holding `slot`'s hotkey.
+fn key(slot: Slot) -> &'static str {
+    match slot {
+        Slot::Word => "hotkey_word",
+        Slot::Phrase => "hotkey_phrase",
+        Slot::Selection => "hotkey_selection",
     }
 }
 
@@ -308,42 +318,39 @@ impl Application for SettingsApp {
                 return self.stop_recording();
             }
             Message::SetAbortOnUnknown(on) => {
-                self.config.abort_on_unknown = on;
-                daemon::save_config(&self.config);
+                daemon::save(|h| self.config.set_abort_on_unknown(h, on));
             }
             Message::SetLanguage(i) => {
                 // The config watch applies it (here and in the panel).
-                self.config.language = LANGUAGES[i].into();
-                daemon::save_config(&self.config);
+                daemon::save(|h| self.config.set_language(h, LANGUAGES[i].into()));
                 crate::i18n::init(&crate::i18n::requested(&self.config.language));
                 self.languages = language_labels();
                 self.tabs = tabs(self.page());
             }
             Message::Tab(id) => self.tabs.activate(id),
             Message::SetAuto(on) => {
-                self.config.auto_enabled = on;
-                daemon::save_config(&self.config);
+                daemon::save(|h| self.config.set_auto_enabled(h, on));
             }
             Message::NewApp(text) => self.new_app = text,
             Message::AddApp => {
                 let app = self.new_app.trim().to_owned();
                 if !app.is_empty() && !self.config.auto_excluded_apps.contains(&app) {
-                    self.config.auto_excluded_apps.push(app);
-                    daemon::save_config(&self.config);
+                    let mut apps = self.config.auto_excluded_apps.clone();
+                    apps.push(app);
+                    daemon::save(|h| self.config.set_auto_excluded_apps(h, apps));
                 }
                 self.new_app.clear();
             }
-            Message::RemoveApp(i) => {
-                if i < self.config.auto_excluded_apps.len() {
-                    self.config.auto_excluded_apps.remove(i);
-                    daemon::save_config(&self.config);
-                }
+            // By value, not index: a config reload may have reordered the list.
+            Message::RemoveApp(app) => {
+                let mut apps = self.config.auto_excluded_apps.clone();
+                apps.retain(|a| *a != app);
+                daemon::save(|h| self.config.set_auto_excluded_apps(h, apps));
             }
-            Message::RemoveWord(i) => {
-                if i < self.config.auto_exceptions.len() {
-                    self.config.auto_exceptions.remove(i);
-                    daemon::save_config(&self.config);
-                }
+            Message::RemoveWord(word) => {
+                let mut words = self.config.auto_exceptions.clone();
+                words.retain(|w| *w != word);
+                daemon::save(|h| self.config.set_auto_exceptions(h, words));
             }
             Message::Reset(slot) => {
                 self.assign(slot, default(slot).into());

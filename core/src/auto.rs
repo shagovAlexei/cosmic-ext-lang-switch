@@ -22,6 +22,10 @@ const TECH_WORDS: &[&str] = &[
     "yaml", "toml", "sql", "css", "dns", "ftp", "tcp", "udp", "usb", "pdf", "iso", "cli", "gui",
 ];
 
+/// Colloquial Russian that hunspell's dictionary lacks and whose US-layout reading
+/// looks like English (`щас` → `ofc`).
+const RU_WORDS: &[&str] = &["щас", "щяс", "шас"];
+
 /// Words known to be real in a language: typed as-is, they are never converted.
 #[derive(Default)]
 pub struct Veto {
@@ -119,6 +123,7 @@ pub fn should_convert_with(
     if cur == to
         || veto.contains(cur, core)
         || (cur == Lang::En && TECH_WORDS.contains(&core.to_lowercase().as_str()))
+        || (cur == Lang::Ru && RU_WORDS.contains(&core.to_lowercase().as_str()))
     {
         return false;
     }
@@ -353,6 +358,14 @@ mod tests {
             wrong.len() <= 1,
             "converted on purpose-typed words: {wrong:?}"
         );
+    }
+
+    #[test]
+    fn colloquial_russian_outside_dictionaries_is_left_alone() {
+        // Regression: `щас` became `ofc` (hunspell lacks it; `ofc` reads as English).
+        for w in ["щас", "щяс", "шас"] {
+            assert!(!decide(w, &remap(w, RU, US)), "{w}");
+        }
     }
 
     #[test]

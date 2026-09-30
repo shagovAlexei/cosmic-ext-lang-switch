@@ -23,7 +23,7 @@ use cosmic::cctk::wayland_protocols::ext::foreign_toplevel_list::v1::client::{
 use cosmic::iced::futures::{SinkExt, StreamExt, channel::mpsc};
 use cosmic::iced::{Subscription, stream};
 use std::collections::{HashMap, HashSet};
-use std::os::fd::{FromRawFd, RawFd};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 /// `zcosmic_toplevel_handle_v1` state value for the focused window.
@@ -33,6 +33,8 @@ struct State {
     info: ZcosmicToplevelInfoV1,
     /// ext handle → app id.
     app_ids: HashMap<ObjectId, String>,
+    /// ext handle → its cosmic handle, to destroy it when the window closes.
+    cosmic_of: HashMap<ObjectId, ZcosmicToplevelHandleV1>,
     /// cosmic handle → ext handle.
     ext_of: HashMap<ObjectId, ObjectId>,
     /// Cosmic handles currently activated.
@@ -64,6 +66,7 @@ impl Dispatch<ExtForeignToplevelListV1, ()> for State {
         if let ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } = e {
             let cosmic = s.info.get_cosmic_toplevel(&toplevel, qh, ());
             s.ext_of.insert(cosmic.id(), toplevel.id());
+            s.cosmic_of.insert(toplevel.id(), cosmic);
         }
     }
 
@@ -83,10 +86,23 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for State {
     ) {
         match e {
             ext_foreign_toplevel_handle_v1::Event::AppId { app_id } => {
-                s.app_ids.insert(h.id(), app_id);
+                let focused = s
+                    .cosmic_of
+                    .get(&h.id())
+                    .is_some_and(|c| s.activated.contains(&c.id()));
+                // A focused window whose app id arrives late (or changes) is reported again.
+                if s.app_ids.insert(h.id(), app_id.clone()).as_ref() != Some(&app_id) && focused {
+                    let _ = s.tx.unbounded_send(app_id);
+                }
             }
             ext_foreign_toplevel_handle_v1::Event::Closed => {
                 s.app_ids.remove(&h.id());
+                if let Some(cosmic) = s.cosmic_of.remove(&h.id()) {
+                    s.ext_of.remove(&cosmic.id());
+                    s.activated.remove(&cosmic.id());
+                    cosmic.destroy();
+                }
+                h.destroy();
             }
             _ => {}
         }
@@ -146,7 +162,11 @@ fn watch(tx: mpsc::UnboundedSender<String>) {
         .ok()
         .and_then(|fd| fd.parse::<RawFd>().ok())
         // SAFETY: the panel passes this fd to us for exactly this use.
-        .map(|fd| unsafe { UnixStream::from_raw_fd(fd) })
+        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
+        // The inherited fd isn't close-on-exec, so programs we launch would get
+        // privileged Wayland access; its duplicate is.
+        .and_then(|fd| fd.try_clone().ok())
+        .map(UnixStream::from)
     else {
         log::info!("no privileged Wayland socket (not run by the panel): per-app exclusions off");
         return;
@@ -160,6 +180,7 @@ fn watch(tx: mpsc::UnboundedSender<String>) {
         let mut state = State {
             info,
             app_ids: HashMap::new(),
+            cosmic_of: HashMap::new(),
             ext_of: HashMap::new(),
             activated: HashSet::new(),
             tx,

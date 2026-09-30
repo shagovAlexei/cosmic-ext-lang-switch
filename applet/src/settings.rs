@@ -272,11 +272,19 @@ impl Application for SettingsApp {
                 fl!("abort-on-unknown"),
                 widget::toggler(self.config.abort_on_unknown).on_toggle(Message::SetAbortOnUnknown),
             ));
+        // Green dot when the service works, red with the reason otherwise.
+        let theme = cosmic::theme::active();
+        let (text, color) = match self.daemon.warning() {
+            None => (fl!("daemon-ok"), theme.cosmic().success_color()),
+            Some(w) => (w, theme.cosmic().destructive_color()),
+        };
         let status = settings::section()
             .title(fl!("section-status"))
             .add(settings::item_row(vec![
-                widget::text::body(self.daemon.warning().unwrap_or_else(|| fl!("daemon-ok")))
+                widget::text::body("●")
+                    .class(cosmic::theme::Text::Color(color.into()))
                     .into(),
+                widget::text::body(text).into(),
             ]));
         let sections: Vec<Element<'_, Message>> =
             vec![hotkeys.into(), behavior.into(), status.into()];

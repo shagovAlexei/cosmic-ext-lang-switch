@@ -16,7 +16,7 @@ fn main() -> cosmic::iced::Result {
     if std::env::args().any(|a| a == "--settings") {
         // Only the minimum is binding for the compositor; the size is a wish.
         let window = cosmic::app::Settings::default()
-            .size(cosmic::iced::Size::new(560.0, 660.0))
+            .size(cosmic::iced::Size::new(560.0, 720.0))
             .size_limits(
                 cosmic::iced::Limits::NONE
                     .min_width(480.0)

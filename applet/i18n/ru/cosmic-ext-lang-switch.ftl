@@ -28,3 +28,7 @@ auto-words = Слова, которые не исправляются
 auto-words-empty = Здесь появятся слова, автоисправление которых вы отменили клавишей Insert
 app-id-placeholder = ID приложения, например org.gnome.Terminal (* в конце — префикс)
 add = Добавить
+about = О программе
+about-comments = Исправляет текст, набранный не в той раскладке
+about-repository = Репозиторий
+about-support = Поддержка

@@ -63,6 +63,11 @@
     <category>Utility</category>
   </categories>
   <releases>
+    <release version="0.1.1" date="2026-10-01">
+      <description>
+        <p>About page in the settings. Fixed: the popup could show "service not running" after login although the service was running.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-01">
       <description>
         <p>First release: manual fixing of word, phrase and selection; auto-correction on Space; settings window. The applet starts the background service; no systemd unit.</p>

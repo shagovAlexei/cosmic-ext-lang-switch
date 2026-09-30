@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.shagovAlexei.cosmic-ext-lang-switch</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <project_group>COSMIC</project_group>
+  <developer id="io.github.shagovalexei">
+    <name>Shagov Alexei</name>
+  </developer>
+  <update_contact>shagov.alexei@gmail.com</update_contact>
+  <url type="homepage">https://github.com/shagovAlexei/cosmic-ext-lang-switch</url>
+  <url type="bugtracker">https://github.com/shagovAlexei/cosmic-ext-lang-switch/issues</url>
+  <url type="help">https://github.com/shagovAlexei/cosmic-ext-lang-switch#readme</url>
+  <url type="vcs-browser">https://github.com/shagovAlexei/cosmic-ext-lang-switch</url>
+  <name>Lang Switch</name>
+  <name xml:lang="ru">Переключатель раскладки</name>
+  <summary>Fix text typed in the wrong keyboard layout</summary>
+  <summary xml:lang="ru">Исправляет текст, набранный не в той раскладке</summary>
+  <description>
+    <p>A Punto Switcher–style layout fixer for the COSMIC™ desktop. Typed "ghbdtn" instead of "привет"? Press Insert and the word is retyped in the right layout.</p>
+    <p xml:lang="ru">Исправление раскладки в стиле Punto Switcher для рабочего стола COSMIC™. Набрали «ghbdtn» вместо «привет»? Нажмите Insert — слово перепечатается в нужной раскладке.</p>
+    <ul>
+      <li>Fix the last word (Insert), the phrase (Super+Insert) or the selected text (Alt+Insert); press again to undo</li>
+      <li>Optional auto-correction on Space, off in terminals, code editors and password prompts</li>
+      <li>Current layout in the panel; switch layouts from the popup</li>
+      <li>Configurable hotkeys, English and Russian interface</li>
+    </ul>
+    <ul xml:lang="ru">
+      <li xml:lang="ru">Исправление последнего слова (Insert), фразы (Super+Insert) или выделенного текста (Alt+Insert); повторное нажатие — отмена</li>
+      <li xml:lang="ru">Автоисправление на пробеле по желанию; не работает в терминалах, редакторах кода и окнах ввода пароля</li>
+      <li xml:lang="ru">Текущая раскладка на панели, переключение раскладок из меню</li>
+      <li xml:lang="ru">Настраиваемые горячие клавиши, интерфейс на английском и русском</li>
+    </ul>
+    <p>Needs a background service with keyboard access (the input group); see the README.</p>
+    <p xml:lang="ru">Нужна фоновая служба с доступом к клавиатуре (группа input); см. README.</p>
+  </description>
+  <launchable type="desktop-id">io.github.shagovAlexei.cosmic-ext-lang-switch.desktop</launchable>
+  <icon type="stock">input-keyboard-symbolic</icon>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/shagovAlexei/cosmic-ext-lang-switch/main/screenshots/popup.png</image>
+      <caption>Panel popup</caption>
+      <caption xml:lang="ru">Меню на панели</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/shagovAlexei/cosmic-ext-lang-switch/main/screenshots/settings-general.png</image>
+      <caption>Hotkeys and behavior</caption>
+      <caption xml:lang="ru">Горячие клавиши и поведение</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/shagovAlexei/cosmic-ext-lang-switch/main/screenshots/settings-auto.png</image>
+      <caption>Auto-correction settings</caption>
+      <caption xml:lang="ru">Настройки автоисправления</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1" />
+  <provides>
+    <id>com.system76.CosmicApplet</id>
+    <binary>cosmic-ext-lang-switch</binary>
+    <binary>cosmic-ext-lang-switch-daemon</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-10-01">
+      <description>
+        <p>First release: manual fixing of word, phrase and selection; auto-correction on Space; settings window.</p>
+      </description>
+    </release>
+  </releases>
+</component>

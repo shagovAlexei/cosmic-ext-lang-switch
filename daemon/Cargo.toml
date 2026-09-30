@@ -1,0 +1,19 @@
+[package]
+name = "cosmic-ext-lang-switch-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+lsc = { package = "cosmic-ext-lang-switch-core", path = "../core" }
+cosmic-config.workspace = true
+evdev = { version = "0.13", features = ["tokio"] }
+wayland-client = "0.31"
+cosmic-protocols = { git = "https://github.com/pop-os/cosmic-protocols", rev = "32283d7", default-features = false, features = ["client"] }
+zbus.workspace = true
+logind-zbus = "5"
+futures-util = "0.3"
+tokio.workspace = true
+log.workspace = true
+simple_logger.workspace = true

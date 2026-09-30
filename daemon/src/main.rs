@@ -218,6 +218,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // must leave the keyboard alone. A taken name comes back as a reply, not an error
     // (so `Builder::name` would let us through).
     let conn = zbus::Connection::session().await?;
+    // Starts answering method calls now: zbus starts the object server lazily and drops
+    // calls that arrive before, and a caller (an applet starting with us) would then wait
+    // forever. Until `at(PATH)` below they get an error and retry.
+    conn.object_server();
     let reply = conn
         .request_name_with_flags(BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into())
         .await?;

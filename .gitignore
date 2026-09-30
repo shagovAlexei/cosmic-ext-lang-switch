@@ -1,0 +1,6 @@
+/target
+/build-dir
+/.flatpak-builder
+/repo
+/vendor
+vendor.tar

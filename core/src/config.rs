@@ -18,7 +18,29 @@ pub struct Config {
     pub abort_on_unknown: bool,
     /// UI language: `""` follows the desktop, otherwise `"en"` or `"ru"`.
     pub language: String,
+    /// Correct words typed in the wrong layout automatically, on space.
+    pub auto_enabled: bool,
+    /// App ids where auto-correction never runs; a trailing `*` matches a prefix.
+    pub auto_excluded_apps: Vec<String>,
+    /// Words (lowercase, as typed) the user undid: never auto-corrected again.
+    pub auto_exceptions: Vec<String>,
 }
+
+/// Terminals and code editors: typed Latin there is commands and identifiers.
+pub const DEFAULT_EXCLUDED_APPS: &[&str] = &[
+    "com.system76.CosmicTerm",
+    "Alacritty",
+    "kitty",
+    "org.wezfurlong.wezterm",
+    "foot",
+    "org.gnome.Console",
+    "org.gnome.Terminal",
+    "code",
+    "com.microsoft.VSCode",
+    "codium",
+    "dev.zed.Zed",
+    "jetbrains-*",
+];
 
 impl Default for Config {
     fn default() -> Self {
@@ -29,6 +51,12 @@ impl Default for Config {
             hotkey_selection: DEFAULT_SELECTION.into(),
             abort_on_unknown: false,
             language: String::new(),
+            auto_enabled: false,
+            auto_excluded_apps: DEFAULT_EXCLUDED_APPS
+                .iter()
+                .map(|&a| a.to_owned())
+                .collect(),
+            auto_exceptions: Vec::new(),
         }
     }
 }
@@ -52,6 +80,19 @@ impl Config {
             phrase: self.hotkey_phrase.parse().unwrap_or(d.phrase),
             selection: self.hotkey_selection.parse().unwrap_or(d.selection),
         }
+    }
+
+    /// Is auto-correction off in this app (by the exclusion list)?
+    #[must_use]
+    pub fn app_excluded(&self, app_id: &str) -> bool {
+        !app_id.is_empty()
+            && self
+                .auto_excluded_apps
+                .iter()
+                .any(|pattern| match pattern.strip_suffix('*') {
+                    Some(prefix) => app_id.starts_with(prefix),
+                    None => app_id == pattern,
+                })
     }
 
     #[must_use]
@@ -137,6 +178,16 @@ mod tests {
             ..c
         };
         assert_eq!(c.unknown(), Unknown::Abort);
+    }
+
+    #[test]
+    fn auto_is_off_and_excludes_terminals_and_code_editors_by_default() {
+        let c = Config::default();
+        assert!(!c.auto_enabled);
+        assert!(c.app_excluded("com.system76.CosmicTerm"));
+        assert!(c.app_excluded("jetbrains-idea"), "prefix pattern");
+        assert!(!c.app_excluded("org.telegram.desktop"));
+        assert!(!c.app_excluded(""), "unknown app: not excluded");
     }
 
     #[test]

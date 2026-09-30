@@ -144,7 +144,7 @@ async fn exec(
                         .is_ok_and(|r| r.is_ok());
             }
             // Expanded into the actions above before `exec` is called.
-            Action::ConvertSelection => {}
+            Action::ConvertSelection | Action::AddException(_) => {}
             Action::Type(strokes) => {
                 for s in strokes {
                     kb.stroke(*s)?;
@@ -154,6 +154,33 @@ async fn exec(
         }
     }
     Ok(switched)
+}
+
+/// Push the auto-correction settings from the config into the engine.
+fn apply_auto(engine: &mut Engine, config: &Config, active_app: &str) {
+    engine.auto.enabled = config.auto_enabled;
+    engine.auto.exceptions.clone_from(&config.auto_exceptions);
+    engine.auto.app_excluded = config.app_excluded(active_app);
+}
+
+/// Remember undone auto-corrections; the config watch then reloads them.
+fn save_exceptions(actions: &[Action]) {
+    let mut config = load_config();
+    let mut changed = false;
+    for a in actions {
+        if let Action::AddException(word) = a
+            && !config.auto_exceptions.contains(word)
+        {
+            config.auto_exceptions.push(word.clone());
+            changed = true;
+        }
+    }
+    if changed
+        && let Err(e) =
+            cosmic_config::Config::new(APP_ID, Config::VERSION).map(|h| config.write_entry(&h))
+    {
+        log::warn!("saving auto-correction exceptions: {e:?}");
+    }
 }
 
 fn load_config() -> Config {
@@ -217,6 +244,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.set_layouts(layouts.len() as u32);
     engine.set_enabled(config.enabled && status == "ok");
     engine.on_group(*group_rx.borrow_and_update());
+    let (veto, words) = tables::load_veto(std::path::Path::new("/usr/share/hunspell"));
+    log::info!("auto-correction dictionary veto: {words} words");
+    engine.auto.veto = veto;
+    engine.auto.tables.clone_from(&tables);
+    // Set by the applet over D-Bus; empty until it reports (then nothing is excluded).
+    let mut active_app = String::new();
+    apply_auto(&mut engine, &config, &active_app);
 
     let (cfg_tx, mut cfg_rx) = mpsc::unbounded_channel();
     let watch_cfg = |id: &str, version| {
@@ -231,8 +265,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (pause_tx, mut pause_rx) = mpsc::unbounded_channel();
     // A settings window may close mid-recording; never stay paused for long.
     let mut pause_until: Option<tokio::time::Instant> = None;
+    let (app_tx, mut app_rx) = mpsc::unbounded_channel();
     let service = Service {
         pause: pause_tx,
+        active_app: app_tx,
         layouts: layouts.clone(),
         current: *group_rx.borrow(),
         status: status.into(),
@@ -278,6 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Err(e) => log::error!("replay failed: {e}"),
                     }
                 }
+                save_exceptions(&actions);
                 let g = *group_rx.borrow_and_update();
                 engine.on_group(g);
                 publish(&conn, |s| s.current = g).await;
@@ -292,10 +329,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 layouts = tables::describe(&comp_xkb());
                 tables = tables::build(&comp_xkb());
                 engine.set_hotkeys(config.hotkeys());
+                engine.auto.tables.clone_from(&tables);
+                apply_auto(&mut engine, &config, &active_app);
                 engine.set_layouts(layouts.len() as u32);
                 engine.set_enabled(config.enabled && status == "ok");
                 let l = layouts.clone();
                 publish(&conn, |s| s.layouts = l).await;
+            }
+            Some(app) = app_rx.recv() => {
+                engine.auto.app_excluded = config.app_excluded(&app);
+                active_app = app;
             }
             Some(p) = pause_rx.recv() => {
                 engine.set_paused(p);

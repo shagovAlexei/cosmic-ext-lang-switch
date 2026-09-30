@@ -4,3 +4,6 @@
 /repo
 /vendor
 vendor.tar
+/docs/superpowers/
+/.claude/
+/.superpowers/

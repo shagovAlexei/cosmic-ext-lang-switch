@@ -35,12 +35,12 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | toggle off in the applet, type, Insert | nothing happens |
 | popup next to COSMIC's own layout applet | same look: full layout names with codes, active one bold, dividers |
 | popup: Keyboard Settings… / Region & Language… | cosmic-settings opens on that page, popup closes |
-| popup: Lang Switch Settings… | the settings window opens |
+| popup: Lang Switch Settings… | the settings window opens; clicking again brings back the same window, never a second one |
 | settings: record word hotkey, press F9 | saved; F9 fixes words at once, Insert no longer does |
 | settings: record, press the current hotkey (Insert) | it is captured, not swallowed by the daemon |
 | settings: record, press Esc / a letter / another action's combo | cancelled / hint, keeps recording / "already used" hint |
-| settings: Reset to defaults | Insert, Super+Insert, Alt+Insert |
-| settings window at its default size | everything fits without scrolling; a warning line shows only when the service has a problem |
+| settings: ↶ next to each hotkey | that one goes back to its default; greyed out when already default; "already used" hint on conflict |
+| settings window at its default size | everything fits without scrolling, including the Status section (service running / what is wrong) |
 | settings: Language → Русский | window and popup switch to Russian at once |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
 

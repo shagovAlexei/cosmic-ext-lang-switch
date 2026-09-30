@@ -3,7 +3,6 @@
 use crate::daemon::{self, Daemon};
 use crate::fl;
 use cosmic::app::{Core, Task};
-use cosmic::iced::Length;
 use cosmic::iced::keyboard::{self, Key, Modifiers, key::Named};
 use cosmic::iced::{Event, Subscription, event};
 use cosmic::widget::{self, settings};
@@ -11,7 +10,17 @@ use cosmic::{Application, ApplicationExt, Element};
 use lsc::config::{APP_ID, Config};
 use lsc::hotkey::{DEFAULT_PHRASE, DEFAULT_SELECTION, DEFAULT_WORD, Hotkey, Mods};
 
-pub const SETTINGS_ID: &str = "io.github.shagovAlexei.cosmic-ext-lang-switch.settings";
+/// Lets libcosmic keep one settings window: a second launch activates the first.
+#[derive(Clone, Debug, Default)]
+pub struct Flags;
+
+impl cosmic::app::CosmicFlags for Flags {
+    type SubCommand = String;
+    type Args = Vec<String>;
+}
+
+/// No hyphens: single-instance mode turns this into a D-Bus name and object path.
+pub const SETTINGS_ID: &str = "io.github.shagovAlexei.CosmicExtLangSwitch.Settings";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Slot {
@@ -28,7 +37,7 @@ pub enum Message {
     Key(Key, Modifiers),
     SetAbortOnUnknown(bool),
     SetLanguage(usize),
-    Reset,
+    Reset(Slot),
     Done,
 }
 
@@ -50,12 +59,18 @@ fn language_labels() -> Vec<String> {
 }
 
 impl SettingsApp {
-    fn field(&mut self, slot: Slot) -> &mut String {
-        match slot {
-            Slot::Word => &mut self.config.hotkey_word,
-            Slot::Phrase => &mut self.config.hotkey_phrase,
-            Slot::Selection => &mut self.config.hotkey_selection,
+    /// Saves `value` as the hotkey for `slot` unless another action already uses it.
+    fn assign(&mut self, slot: Slot, value: String) -> bool {
+        let mut candidate = self.config.clone();
+        *field(&mut candidate, slot) = value;
+        if candidate.hotkeys().conflict() {
+            self.hint = Some(fl!("hotkey-taken"));
+            return false;
         }
+        self.config = candidate;
+        daemon::save_config(&self.config);
+        self.hint = None;
+        true
     }
 
     fn stop_recording(&mut self) -> Task<Message> {
@@ -66,20 +81,44 @@ impl SettingsApp {
     }
 
     fn hotkey_item(&self, title: String, slot: Slot) -> Element<'_, Message> {
+        let current = match slot {
+            Slot::Word => &self.config.hotkey_word,
+            Slot::Phrase => &self.config.hotkey_phrase,
+            Slot::Selection => &self.config.hotkey_selection,
+        };
         let text = if self.recording == Some(slot) {
             fl!("press-keys")
         } else {
-            match slot {
-                Slot::Word => self.config.hotkey_word.clone(),
-                Slot::Phrase => self.config.hotkey_phrase.clone(),
-                Slot::Selection => self.config.hotkey_selection.clone(),
-            }
+            current.clone()
         };
-        settings::item(
-            title,
-            widget::button::standard(text).on_press(Message::Record(slot)),
-        )
-        .into()
+        let reset = widget::button::icon(widget::icon::from_name("edit-undo-symbolic"))
+            .on_press_maybe((current != default(slot)).then_some(Message::Reset(slot)));
+        let controls = widget::row::with_capacity(2)
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center)
+            .push(widget::button::standard(text).on_press(Message::Record(slot)))
+            .push(widget::tooltip(
+                reset,
+                widget::text::body(fl!("reset-default")),
+                widget::tooltip::Position::Bottom,
+            ));
+        settings::item(title, controls).into()
+    }
+}
+
+fn field(config: &mut Config, slot: Slot) -> &mut String {
+    match slot {
+        Slot::Word => &mut config.hotkey_word,
+        Slot::Phrase => &mut config.hotkey_phrase,
+        Slot::Selection => &mut config.hotkey_selection,
+    }
+}
+
+fn default(slot: Slot) -> &'static str {
+    match slot {
+        Slot::Word => DEFAULT_WORD,
+        Slot::Phrase => DEFAULT_PHRASE,
+        Slot::Selection => DEFAULT_SELECTION,
     }
 }
 
@@ -94,7 +133,7 @@ fn key_event(event: Event, _: event::Status, _: cosmic::iced::window::Id) -> Opt
 
 impl Application for SettingsApp {
     type Executor = cosmic::executor::multi::Executor;
-    type Flags = ();
+    type Flags = Flags;
     type Message = Message;
     const APP_ID: &'static str = SETTINGS_ID;
 
@@ -106,7 +145,7 @@ impl Application for SettingsApp {
         &mut self.core
     }
 
-    fn init(core: Core, (): ()) -> (Self, Task<Message>) {
+    fn init(core: Core, _: Flags) -> (Self, Task<Message>) {
         let mut app = Self {
             core,
             config: daemon::load_config(),
@@ -184,19 +223,9 @@ impl Application for SettingsApp {
                     self.hint = Some(fl!("hotkey-invalid"));
                     return Task::none();
                 };
-                let mut candidate = self.config.clone();
-                *match slot {
-                    Slot::Word => &mut candidate.hotkey_word,
-                    Slot::Phrase => &mut candidate.hotkey_phrase,
-                    Slot::Selection => &mut candidate.hotkey_selection,
-                } = hotkey.to_string();
-                if candidate.hotkeys().conflict() {
-                    self.hint = Some(fl!("hotkey-taken"));
+                if !self.assign(slot, hotkey.to_string()) {
                     return Task::none();
                 }
-                *self.field(slot) = hotkey.to_string();
-                daemon::save_config(&self.config);
-                self.hint = None;
                 return self.stop_recording();
             }
             Message::SetAbortOnUnknown(on) => {
@@ -210,12 +239,8 @@ impl Application for SettingsApp {
                 crate::i18n::init(&crate::i18n::requested(&self.config.language));
                 self.languages = language_labels();
             }
-            Message::Reset => {
-                self.config.hotkey_word = DEFAULT_WORD.into();
-                self.config.hotkey_phrase = DEFAULT_PHRASE.into();
-                self.config.hotkey_selection = DEFAULT_SELECTION.into();
-                daemon::save_config(&self.config);
-                self.hint = None;
+            Message::Reset(slot) => {
+                self.assign(slot, default(slot).into());
             }
             Message::Done => {}
         }
@@ -233,12 +258,6 @@ impl Application for SettingsApp {
                 widget::text::caption(h.as_str()).into(),
             ]));
         }
-        hotkeys = hotkeys.add(settings::item_row(vec![
-            widget::Space::new().width(Length::Fill).into(),
-            widget::button::text(fl!("reset-defaults"))
-                .on_press(Message::Reset)
-                .into(),
-        ]));
         let behavior = settings::section()
             .title(fl!("section-behavior"))
             .add(settings::item(
@@ -253,13 +272,31 @@ impl Application for SettingsApp {
                 fl!("abort-on-unknown"),
                 widget::toggler(self.config.abort_on_unknown).on_toggle(Message::SetAbortOnUnknown),
             ));
-        // Only shown when something is wrong; the popup has the on/off switch.
-        let mut sections: Vec<Element<'_, Message>> = Vec::with_capacity(3);
-        if let Some(w) = self.daemon.warning() {
-            sections.push(widget::text::body(w).into());
-        }
-        sections.push(hotkeys.into());
-        sections.push(behavior.into());
+        let status = settings::section()
+            .title(fl!("section-status"))
+            .add(settings::item_row(vec![
+                widget::text::body(self.daemon.warning().unwrap_or_else(|| fl!("daemon-ok")))
+                    .into(),
+            ]));
+        let sections: Vec<Element<'_, Message>> =
+            vec![hotkeys.into(), behavior.into(), status.into()];
         widget::scrollable(settings::view_column(sections).padding([8, 16])).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_id_is_a_valid_dbus_name_and_path() {
+        // libcosmic's single-instance mode serves D-Bus at a path built from the
+        // app id and exits the process if that fails (hyphens are not allowed).
+        let path = format!("/{}", SETTINGS_ID.replace('.', "/"));
+        assert!(
+            zbus::zvariant::ObjectPath::try_from(path.as_str()).is_ok(),
+            "{path}"
+        );
+        assert!(zbus::names::WellKnownName::try_from(SETTINGS_ID).is_ok());
     }
 }

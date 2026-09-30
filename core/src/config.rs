@@ -16,6 +16,8 @@ pub struct Config {
     pub hotkey_selection: String,
     /// Retype nothing if the selection holds a character no layout can type.
     pub abort_on_unknown: bool,
+    /// UI language: `""` follows the desktop, otherwise `"en"` or `"ru"`.
+    pub language: String,
 }
 
 impl Default for Config {
@@ -26,6 +28,7 @@ impl Default for Config {
             hotkey_phrase: DEFAULT_PHRASE.into(),
             hotkey_selection: DEFAULT_SELECTION.into(),
             abort_on_unknown: false,
+            language: String::new(),
         }
     }
 }
@@ -134,6 +137,11 @@ mod tests {
             ..c
         };
         assert_eq!(c.unknown(), Unknown::Abort);
+    }
+
+    #[test]
+    fn language_defaults_to_system() {
+        assert_eq!(Config::default().language, "");
     }
 
     #[test]

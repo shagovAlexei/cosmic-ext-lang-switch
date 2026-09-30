@@ -18,3 +18,5 @@ press-keys = Press a key combination…
 reset-defaults = Reset to defaults
 hotkey-taken = This combination is already used by another action
 daemon-ok = The service is running
+language = Language
+language-system = System

@@ -18,3 +18,5 @@ press-keys = Нажмите сочетание клавиш…
 reset-defaults = Сбросить по умолчанию
 hotkey-taken = Это сочетание уже занято другим действием
 daemon-ok = Служба работает
+language = Язык
+language-system = Системный

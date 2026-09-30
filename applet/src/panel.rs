@@ -118,7 +118,12 @@ impl Application for Applet {
                     self.popup = None;
                 }
             }
-            Message::Config(c) => self.config = c,
+            Message::Config(c) => {
+                if c.language != self.config.language {
+                    crate::i18n::init(&crate::i18n::requested(&c.language));
+                }
+                self.config = c;
+            }
             Message::Daemon(d) => self.daemon = d,
             Message::SetLayout(i) => {
                 return Task::perform(daemon::set_layout(i), |()| {
@@ -185,21 +190,36 @@ impl Application for Applet {
             .align_y(Alignment::Center)
             .push(widget::text::body(fl!("enabled")).width(Length::Fill))
             .push(widget::toggler(self.config.enabled).on_toggle(Message::SetEnabled));
+        let button = |icon: &'static str, tip: String, open: Open| {
+            widget::tooltip(
+                widget::button::icon(widget::icon::from_name(icon)).on_press(Message::Open(open)),
+                widget::text::body(tip),
+                widget::tooltip::Position::Bottom,
+            )
+        };
+        let menu = widget::row::with_capacity(5)
+            .spacing(cosmic::theme::active().cosmic().spacing.space_l)
+            .push(widget::Space::new().width(Length::Fill))
+            .push(button(
+                "input-keyboard-symbolic",
+                fl!("keyboard-settings"),
+                Open::Keyboard,
+            ))
+            .push(button(
+                "preferences-desktop-locale-symbolic",
+                fl!("region-settings"),
+                Open::Region,
+            ))
+            .push(button(
+                "emblem-system-symbolic",
+                fl!("app-settings"),
+                Open::Settings,
+            ))
+            .push(widget::Space::new().width(Length::Fill));
         list = list
             .push(padded_control(toggle))
             .push(separator())
-            .push(
-                menu_button(widget::text::body(fl!("keyboard-settings")))
-                    .on_press(Message::Open(Open::Keyboard)),
-            )
-            .push(
-                menu_button(widget::text::body(fl!("region-settings")))
-                    .on_press(Message::Open(Open::Region)),
-            )
-            .push(
-                menu_button(widget::text::body(fl!("app-settings")))
-                    .on_press(Message::Open(Open::Settings)),
-            );
+            .push(padded_control(menu));
         self.core.applet.popup_container(list).into()
     }
 

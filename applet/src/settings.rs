@@ -28,6 +28,7 @@ pub enum Message {
     Key(Key, Modifiers),
     SetEnabled(bool),
     SetAbortOnUnknown(bool),
+    SetLanguage(usize),
     Reset,
     Done,
 }
@@ -38,6 +39,15 @@ pub struct SettingsApp {
     daemon: Daemon,
     recording: Option<Slot>,
     hint: Option<String>,
+    /// Dropdown labels, rebuilt when the UI language changes.
+    languages: Vec<String>,
+}
+
+/// Config values behind the language dropdown, in its order.
+const LANGUAGES: [&str; 3] = ["", "en", "ru"];
+
+fn language_labels() -> Vec<String> {
+    vec![fl!("language-system"), "English".into(), "Русский".into()]
 }
 
 impl SettingsApp {
@@ -104,6 +114,7 @@ impl Application for SettingsApp {
             daemon: Daemon::default(),
             recording: None,
             hint: None,
+            languages: language_labels(),
         };
         app.set_header_title(fl!("settings-title"));
         let task = match app.core.main_window_id() {
@@ -128,7 +139,13 @@ impl Application for SettingsApp {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Config(c) => self.config = c,
+            Message::Config(c) => {
+                if c.language != self.config.language {
+                    crate::i18n::init(&crate::i18n::requested(&c.language));
+                    self.languages = language_labels();
+                }
+                self.config = c;
+            }
             Message::Daemon(d) => self.daemon = d,
             Message::Record(slot) => {
                 self.recording = Some(slot);
@@ -191,6 +208,13 @@ impl Application for SettingsApp {
                 self.config.abort_on_unknown = on;
                 daemon::save_config(&self.config);
             }
+            Message::SetLanguage(i) => {
+                // The config watch applies it (here and in the panel).
+                self.config.language = LANGUAGES[i].into();
+                daemon::save_config(&self.config);
+                crate::i18n::init(&crate::i18n::requested(&self.config.language));
+                self.languages = language_labels();
+            }
             Message::Reset => {
                 self.config.hotkey_word = DEFAULT_WORD.into();
                 self.config.hotkey_phrase = DEFAULT_PHRASE.into();
@@ -225,6 +249,14 @@ impl Application for SettingsApp {
             .add(settings::item(
                 fl!("enabled"),
                 widget::toggler(self.config.enabled).on_toggle(Message::SetEnabled),
+            ))
+            .add(settings::item(
+                fl!("language"),
+                widget::dropdown(
+                    &self.languages,
+                    LANGUAGES.iter().position(|&l| l == self.config.language),
+                    Message::SetLanguage,
+                ),
             ))
             .add(settings::item(
                 fl!("abort-on-unknown"),

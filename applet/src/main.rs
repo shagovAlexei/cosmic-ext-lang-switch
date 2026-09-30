@@ -14,8 +14,15 @@ fn main() -> cosmic::iced::Result {
         .ok();
     i18n::init(&i18n::requested(&daemon::load_config().language));
     if std::env::args().any(|a| a == "--settings") {
-        let window = cosmic::app::Settings::default().size(cosmic::iced::Size::new(560.0, 520.0));
-        return cosmic::app::run::<settings::SettingsApp>(window, ());
+        // Only the minimum is binding for the compositor; the size is a wish.
+        let window = cosmic::app::Settings::default()
+            .size(cosmic::iced::Size::new(560.0, 660.0))
+            .size_limits(
+                cosmic::iced::Limits::NONE
+                    .min_width(480.0)
+                    .min_height(600.0),
+            );
+        return cosmic::app::run_single_instance::<settings::SettingsApp>(window, settings::Flags);
     }
     cosmic::applet::run::<panel::Applet>(())
 }

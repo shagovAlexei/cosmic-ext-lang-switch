@@ -12,7 +12,7 @@ Phases:
 
 Names: crate/applet `cosmic-ext-lang-switch`, daemon `cosmic-ext-lang-switch-daemon` (`systemd --user`, user in `input` group), APP_ID `io.github.shagovAlexei.cosmic-ext-lang-switch`, D-Bus `io.github.shagovAlexei.CosmicExtLangSwitch`. Default hotkeys (configurable): word `Insert`, selection `Alt+Insert`, phrase `Super+Insert` (the machine has no Pause key; `Shift/Ctrl+Insert` are paste/copy).
 
-Spec: `docs/superpowers/specs/2026-09-30-lang-switch-phase-a-design.md`, plans: `docs/superpowers/plans/`.
+Specs and plans live locally in `docs/superpowers/{specs,plans}/` (git-ignored, not in the repo).
 
 ## Platform facts (verified 2026-09-30)
 

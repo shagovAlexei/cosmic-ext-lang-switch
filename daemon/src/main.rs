@@ -27,7 +27,7 @@ async fn check() -> i32 {
         bad += i32::from(!ok);
     };
     let (tx, _rx) = mpsc::unbounded_channel();
-    let n = input::spawn_new_devices(&Arc::new(Mutex::new(HashSet::new())), &tx);
+    let n = input::spawn_new_devices(&Arc::new(Mutex::new(HashSet::new())), &tx, false);
     line(
         "input",
         n > 0,
@@ -125,10 +125,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
     let seen: input::Seen = Arc::default();
-    let devices = input::spawn_new_devices(&seen, &key_tx);
+    // The virtual keyboard must exist before any keyboard is grabbed: it forwards their keys.
     let mut keyboard = input::Keyboard::new()
         .inspect_err(|e| log::error!("uinput: {e}"))
         .ok();
+    let grab = keyboard.is_some();
+    let devices = input::spawn_new_devices(&seen, &key_tx, grab);
     let (group_tx, mut group_rx) = watch::channel(0);
     let layout = layout::Layout::connect(group_tx)
         .inspect_err(|e| log::error!("layout protocol: {e}"))
@@ -179,8 +181,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rescan = tokio::time::interval(Duration::from_secs(2));
     loop {
         tokio::select! {
-            Some((code, value)) = key_rx.recv() => {
-                let Some(actions) = engine.on_key(code, value) else { continue };
+            Some((code, value, grabbed)) = key_rx.recv() => {
+                let out = engine.feed(code, value);
+                if grabbed && let Some(kb) = keyboard.as_mut() {
+                    let sent = if out.forward { kb.key(code, value) } else { Ok(()) };
+                    if let Err(e) = sent.and_then(|()| out.tap_instead.map_or(Ok(()), |k| kb.tap(k))) {
+                        log::error!("forward failed: {e}");
+                    }
+                }
+                let Some(actions) = out.actions else { continue };
                 if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref())
                     && let Err(e) = exec(kb, l, &mut group_rx, &actions).await
                 {
@@ -209,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.release_mods();
                 log::info!("session locked: buffer cleared");
             }
-            _ = rescan.tick() => { input::spawn_new_devices(&seen, &key_tx); }
+            _ = rescan.tick() => { input::spawn_new_devices(&seen, &key_tx, grab); }
         }
     }
 }

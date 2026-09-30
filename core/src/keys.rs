@@ -4,6 +4,8 @@
 pub const BACKSPACE: u16 = 14;
 pub const SPACE: u16 = 57;
 pub const LEFTSHIFT: u16 = 42;
+/// Unbound on COSMIC: tapped to keep a held Super from counting as a lone Super tap.
+pub const F24: u16 = 194;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {

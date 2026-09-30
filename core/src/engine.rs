@@ -20,6 +20,16 @@ pub enum Action {
     Type(Vec<Stroke>),
 }
 
+/// What the daemon does with one key event from a grabbed keyboard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Outcome {
+    /// Pass the event on to the compositor.
+    pub forward: bool,
+    /// Tap this key instead of the swallowed one.
+    pub tap_instead: Option<u16>,
+    pub actions: Option<Vec<Action>>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Last {
     len: usize,
@@ -37,6 +47,8 @@ pub struct Engine {
     group: u32,
     layouts: u32,
     expected: Option<u32>,
+    /// Hotkey keys whose press was swallowed; their repeats and release are too.
+    swallowed: Vec<u16>,
 }
 
 impl Engine {
@@ -52,6 +64,32 @@ impl Engine {
             group: 0,
             layouts: 0,
             expected: None,
+            swallowed: Vec::new(),
+        }
+    }
+
+    /// Like `on_key`, plus whether the event may reach the compositor.
+    pub fn feed(&mut self, code: u16, value: i32) -> Outcome {
+        let mut tap_instead = None;
+        let swallow = if value == 1 {
+            let hit = self.enabled && self.hotkeys.matches(code, self.mods).is_some();
+            if hit {
+                self.swallowed.push(code);
+                // A lone Super press+release opens the COSMIC launcher.
+                tap_instead = self.mods.sup.then_some(keys::F24);
+            }
+            hit
+        } else {
+            let hit = self.swallowed.contains(&code);
+            if hit && value == 0 {
+                self.swallowed.retain(|&c| c != code);
+            }
+            hit
+        };
+        Outcome {
+            forward: !swallow,
+            tap_instead,
+            actions: self.on_key(code, value),
         }
     }
 
@@ -375,6 +413,55 @@ mod tests {
         typed(&mut e, &GHBDTN); // password on the lock screen
         tap(&mut e, 272); // clicked "Unlock" instead of Enter
         assert_eq!(tap(&mut e, INSERT), None);
+    }
+
+    #[test]
+    fn hotkey_is_swallowed_on_press_repeat_and_release() {
+        let mut e = engine();
+        assert!(!e.feed(INSERT, 1).forward);
+        assert!(!e.feed(INSERT, 2).forward);
+        assert!(!e.feed(INSERT, 0).forward);
+    }
+
+    #[test]
+    fn letters_and_modifiers_are_forwarded() {
+        let mut e = engine();
+        for (code, value) in [
+            (34, 1),
+            (34, 0),
+            (SUPER, 1),
+            (SUPER, 0),
+            (keys::LEFTSHIFT, 1),
+        ] {
+            assert!(e.feed(code, value).forward, "{code}/{value}");
+        }
+    }
+
+    #[test]
+    fn disabled_forwards_the_hotkey() {
+        let mut e = engine();
+        e.set_enabled(false);
+        assert!(e.feed(INSERT, 1).forward);
+        assert!(e.feed(INSERT, 0).forward);
+    }
+
+    #[test]
+    fn swallowed_hotkey_under_super_taps_f24() {
+        let mut e = engine();
+        e.feed(SUPER, 1);
+        assert_eq!(e.feed(INSERT, 1).tap_instead, Some(keys::F24));
+        assert_eq!(e.feed(INSERT, 0).tap_instead, None);
+    }
+
+    #[test]
+    fn plain_hotkey_taps_nothing_and_still_corrects() {
+        let mut e = engine();
+        for &c in &GHBDTN {
+            e.feed(c, 1);
+            e.feed(c, 0);
+        }
+        assert_eq!(e.feed(INSERT, 1).tap_instead, None);
+        assert_eq!(e.feed(INSERT, 0).actions.unwrap()[0], Action::Backspace(6));
     }
 
     #[test]

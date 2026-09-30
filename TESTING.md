@@ -19,7 +19,12 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | gedit: `ghbdtn` + Insert | `привет`, panel shows RU |
 | Insert again | back to `ghbdtn`, EN |
 | `hello ghbdtn` + Super+Insert (release Super) | whole phrase retyped in RU |
-| COSMIC Terminal, Firefox, LibreOffice: word + Insert | same (LibreOffice: Insert also toggles overwrite mode) |
+| COSMIC Terminal, Firefox, LibreOffice: word + Insert | same; no `~` in the terminal |
+| gedit: `ghbdtn world`, caret after `ghbdtn`, Insert | `привет world` (Insert is swallowed, overwrite mode stays off) |
+| Super+Insert | launcher does not open |
+| Caps Lock | LED follows, as before |
+| normal typing, key repeat, media keys | no lag, nothing lost |
+| `kill -9` the daemon | keyboard keeps working (kernel drops the grab) |
 | type a word, click with touchpad elsewhere, Insert | nothing deleted |
 | type a word, Super+Space, Insert | nothing happens |
 | lock screen, type password, unlock, then type a word + Insert | the new word is fixed (daemon is not deaf after unlock); the password is never replayed |
@@ -38,3 +43,6 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `autorepeat_resets_buffer` | kernel autorepeat counts drifting from the app's own repeat, so Insert deletes extra text |
 | `stale_modifier_after_lock_is_cleared` | Super released while locked leaving the engine deaf after unlock |
 | `lock_screen_password_ended_by_click_is_not_replayed` | a lock-screen password replayed after unlock (COSMIC sends Lock but never Unlock, so there is no pause) |
+| `hotkey_is_swallowed_on_press_repeat_and_release` | Insert reaching apps (overwrite mode, `~` in terminals) |
+| `swallowed_hotkey_under_super_taps_f24` | a swallowed Super+Insert opening the COSMIC launcher |
+| `disabled_forwards_the_hotkey` | Insert being eaten while correction is switched off |

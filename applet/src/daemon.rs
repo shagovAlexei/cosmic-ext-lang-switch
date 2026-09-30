@@ -101,6 +101,58 @@ pub fn save(set: impl FnOnce(&cosmic_config::Config) -> Result<bool, cosmic_conf
     }
 }
 
+/// Unless a daemon already runs, starts one next to our binary, handing it the panel's
+/// privileged Wayland connection (only there does cosmic-comp show a sandboxed process
+/// the layout, selection and focus protocols). When that daemon exits, so does the
+/// applet, with an error code: only then does the panel restart it, with a fresh
+/// connection, and the new instance starts a new daemon.
+pub async fn run_daemon() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    // Taken (and closed if unused) either way, so programs we launch don't inherit it.
+    let socket = lsc::fd::socket_fd(std::env::var("X_PRIVILEGED_WAYLAND_SOCKET").ok().as_deref())
+        // SAFETY: the panel passes this fd to us for exactly this use; checked open above.
+        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) });
+    let running = async {
+        let conn = zbus::Connection::session().await?;
+        let name = zbus::names::BusName::try_from(lsc::dbus::BUS_NAME)?;
+        let dbus = zbus::fdo::DBusProxy::new(&conn).await?;
+        Ok::<_, zbus::Error>(dbus.name_has_owner(name).await?)
+    };
+    if running.await.unwrap_or(false) {
+        return;
+    }
+    let Some(socket) = socket else {
+        log::warn!("no privileged Wayland socket (not run by the panel): daemon not started");
+        return;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let spawned = tokio::process::Command::new(exe.with_file_name("cosmic-ext-lang-switch-daemon"))
+        .stdin(std::process::Stdio::from(socket))
+        .env(lsc::fd::DAEMON_WAYLAND_FD, "0")
+        .spawn();
+    match spawned {
+        Ok(mut child) => {
+            let status = child.wait().await;
+            log::warn!("daemon exited ({status:?}); restarting the applet");
+            std::process::exit(1);
+        }
+        Err(e) => log::error!("starting the daemon: {e}"),
+    }
+}
+
+/// Starts a host program (cosmic-settings), from inside Flatpak too.
+pub fn launch_host(program: &str, arg: &str) {
+    if std::path::Path::new("/.flatpak-info").exists() {
+        let mut cmd = std::process::Command::new("flatpak-spawn");
+        cmd.args(["--host", program, arg]);
+        tokio::spawn(cosmic::process::spawn(cmd));
+    } else {
+        launch(program, arg);
+    }
+}
+
 /// Starts a program detached from the applet.
 pub fn launch(program: impl AsRef<std::ffi::OsStr>, arg: &str) {
     let mut cmd = std::process::Command::new(program);

@@ -75,7 +75,10 @@ impl Application for Applet {
             label: String::new(),
         };
         applet.refresh_label();
-        (applet, Task::none())
+        let daemon = Task::perform(daemon::run_daemon(), |()| {
+            cosmic::action::app(Message::Done)
+        });
+        (applet, daemon)
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
@@ -133,8 +136,8 @@ impl Application for Applet {
             }
             Message::Open(what) => {
                 match what {
-                    Open::Keyboard => daemon::launch("cosmic-settings", "keyboard"),
-                    Open::Region => daemon::launch("cosmic-settings", "region-language"),
+                    Open::Keyboard => daemon::launch_host("cosmic-settings", "keyboard"),
+                    Open::Region => daemon::launch_host("cosmic-settings", "region-language"),
                     Open::Settings => {
                         let me = std::env::current_exe()
                             .unwrap_or_else(|_| "cosmic-ext-lang-switch".into());

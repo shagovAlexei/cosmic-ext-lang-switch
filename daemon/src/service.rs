@@ -30,8 +30,10 @@ impl Service {
     }
 }
 
-/// Forwards logind Lock (true) / Unlock (false) of the user's graphical session.
-pub async fn lock_signals(tx: tokio::sync::mpsc::UnboundedSender<bool>) -> zbus::Result<()> {
+/// Forwards logind Lock of the user's graphical session. COSMIC never sends
+/// Unlock, so the daemon must not pause on Lock: it only clears state, and the
+/// password typed on the lock screen is dropped by the Enter or click that ends it.
+pub async fn lock_signals(tx: tokio::sync::mpsc::UnboundedSender<()>) -> zbus::Result<()> {
     use futures_util::StreamExt;
     let conn = zbus::Connection::system().await?;
     let manager = logind_zbus::manager::ManagerProxy::new(&conn).await?;
@@ -42,12 +44,8 @@ pub async fn lock_signals(tx: tokio::sync::mpsc::UnboundedSender<bool>) -> zbus:
         .build()
         .await?;
     let mut lock = session.receive_lock().await?;
-    let mut unlock = session.receive_unlock().await?;
-    loop {
-        tokio::select! {
-            Some(_) = lock.next() => { let _ = tx.send(true); }
-            Some(_) = unlock.next() => { let _ = tx.send(false); }
-            else => return Ok(()),
-        }
+    while lock.next().await.is_some() {
+        let _ = tx.send(());
     }
+    Ok(())
 }

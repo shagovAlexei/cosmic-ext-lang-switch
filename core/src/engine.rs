@@ -367,6 +367,17 @@ mod tests {
     }
 
     #[test]
+    fn lock_screen_password_ended_by_click_is_not_replayed() {
+        // COSMIC sends logind Lock but never Unlock, so keys are not paused while locked.
+        let mut e = engine();
+        e.reset(); // Lock
+        e.release_mods();
+        typed(&mut e, &GHBDTN); // password on the lock screen
+        tap(&mut e, 272); // clicked "Unlock" instead of Enter
+        assert_eq!(tap(&mut e, INSERT), None);
+    }
+
+    #[test]
     fn disabled_does_nothing() {
         let mut e = engine();
         e.set_enabled(false);

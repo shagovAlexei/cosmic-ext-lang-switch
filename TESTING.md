@@ -22,7 +22,7 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | COSMIC Terminal, Firefox, LibreOffice: word + Insert | same (LibreOffice: Insert also toggles overwrite mode) |
 | type a word, click with touchpad elsewhere, Insert | nothing deleted |
 | type a word, Super+Space, Insert | nothing happens |
-| lock screen, type password, unlock, Insert | nothing happens |
+| lock screen, type password, unlock, then type a word + Insert | the new word is fixed (daemon is not deaf after unlock); the password is never replayed |
 | toggle off in the applet, type, Insert | nothing happens |
 | set word hotkey to F9 in the applet | F9 works at once, Insert no longer does |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
@@ -37,3 +37,4 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `external_group_change_resets_but_own_does_not` | stale buffer after Super+Space; broken undo |
 | `autorepeat_resets_buffer` | kernel autorepeat counts drifting from the app's own repeat, so Insert deletes extra text |
 | `stale_modifier_after_lock_is_cleared` | Super released while locked leaving the engine deaf after unlock |
+| `lock_screen_password_ended_by_click_is_not_replayed` | a lock-screen password replayed after unlock (COSMIC sends Lock but never Unlock, so there is no pause) |

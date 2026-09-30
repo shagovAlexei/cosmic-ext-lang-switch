@@ -176,12 +176,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let mut locked = false;
     let mut rescan = tokio::time::interval(Duration::from_secs(2));
     loop {
         tokio::select! {
             Some((code, value)) = key_rx.recv() => {
-                if locked { continue; }
                 let Some(actions) = engine.on_key(code, value) else { continue };
                 if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref())
                     && let Err(e) = exec(kb, l, &mut group_rx, &actions).await
@@ -206,11 +204,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let n = names.clone();
                 publish(&conn, |s| s.layouts = n).await?;
             }
-            Some(l) = lock_rx.recv() => {
-                locked = l;
+            Some(()) = lock_rx.recv() => {
                 engine.reset();
                 engine.release_mods();
-                log::info!("session {}", if l { "locked" } else { "unlocked" });
+                log::info!("session locked: buffer cleared");
             }
             _ = rescan.tick() => { input::spawn_new_devices(&seen, &key_tx); }
         }

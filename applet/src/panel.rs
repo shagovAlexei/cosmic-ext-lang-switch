@@ -192,7 +192,7 @@ impl Application for Applet {
             widget::tooltip(
                 widget::button::icon(widget::icon::from_name(icon)).on_press(Message::Open(open)),
                 widget::text::body(tip),
-                widget::tooltip::Position::Bottom,
+                widget::tooltip::Position::Top,
             )
         };
         let menu = widget::row::with_capacity(5)

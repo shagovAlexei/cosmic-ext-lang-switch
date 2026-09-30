@@ -39,14 +39,8 @@ pub struct Applet {
 }
 
 impl Applet {
-    /// A trailing dot marks "correction off".
     fn refresh_label(&mut self) {
-        let name = self.daemon.label();
-        self.label = if self.config.enabled {
-            name.to_owned()
-        } else {
-            format!("{name}·")
-        };
+        self.daemon.label().clone_into(&mut self.label);
     }
 }
 
@@ -155,13 +149,17 @@ impl Application for Applet {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let mut text = widget::text(self.label.as_str());
+        if !self.config.enabled {
+            // Correction off: the label is dimmed.
+            let mut dim: cosmic::iced::Color =
+                cosmic::theme::active().cosmic().on_bg_color().into();
+            dim.a = 0.4;
+            text = text.class(cosmic::theme::Text::Color(dim));
+        }
         self.core
             .applet
-            .autosize_window(
-                self.core
-                    .applet
-                    .text_button(self.label.as_str(), Message::TogglePopup),
-            )
+            .autosize_window(self.core.applet.text_button(text, Message::TogglePopup))
             .into()
     }
 

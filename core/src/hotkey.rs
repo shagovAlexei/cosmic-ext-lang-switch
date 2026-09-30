@@ -69,6 +69,19 @@ impl Mods {
     }
 }
 
+impl Hotkey {
+    /// A combination recorded in the settings window; `key` is the iced key name
+    /// (`Insert`, `F12`, `ContextMenu`, ...). `None` if the key can't be a hotkey.
+    #[must_use]
+    pub fn recorded(key: &str, mods: Mods) -> Option<Self> {
+        let name = if key == "ContextMenu" { "Menu" } else { key };
+        Some(Self {
+            mods,
+            key: key_code(name)?,
+        })
+    }
+}
+
 impl FromStr for Hotkey {
     type Err = String;
 
@@ -200,6 +213,23 @@ mod tests {
         assert_eq!(key_code("f12"), Some(88));
         assert_eq!(key_code("Insert"), Some(110));
         assert_eq!(key_code("A"), None, "letters can't be hotkeys");
+    }
+
+    #[test]
+    fn recorded_keys_use_iced_names() {
+        let sup = Mods {
+            sup: true,
+            ..Mods::default()
+        };
+        assert_eq!(
+            Hotkey::recorded("Insert", sup),
+            Some("Super+Insert".parse().unwrap())
+        );
+        assert_eq!(
+            Hotkey::recorded("ContextMenu", Mods::default()),
+            Some("Menu".parse().unwrap())
+        );
+        assert_eq!(Hotkey::recorded("Tab", Mods::default()), None);
     }
 
     #[test]

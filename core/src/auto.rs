@@ -104,9 +104,21 @@ pub fn should_convert_with(
     let (Some(cur), Some(to)) = (Lang::of(typed), Lang::of(other)) else {
         return false;
     };
+    // Judge the typed word by its letters: quotes and brackets around it (`'agent`,
+    // `[advent`) would otherwise make it "impossible" and skip veto and margin.
+    // (On the Russian layout those keys are letters: `,skj` is "было".)
+    // Sentence punctuation typed after a word is meant as is: retyping it would turn
+    // "hello," into "руддщб" (`,` and `б` share a key).
+    if typed.ends_with([',', '.', ';', ':', '!', '?']) {
+        return false;
+    }
+    let core = typed.trim_matches(|c: char| cur.index(c).is_none());
+    if core.is_empty() {
+        return false;
+    }
     if cur == to
-        || veto.contains(cur, typed)
-        || (cur == Lang::En && TECH_WORDS.contains(&typed.to_lowercase().as_str()))
+        || veto.contains(cur, core)
+        || (cur == Lang::En && TECH_WORDS.contains(&core.to_lowercase().as_str()))
     {
         return false;
     }
@@ -386,6 +398,31 @@ mod tests {
         assert!(!decide("gh1dtn", "пр1вет"), "digits");
         assert!(!decide("ghbDtn", "приВет"), "mixed case");
         assert!(decide("GHBDTN", "ПРИВЕТ"), "all caps is fine");
+    }
+
+    #[test]
+    fn quotes_and_brackets_around_a_word_are_left_alone() {
+        // Outside the alphabet they made the typed word "impossible", skipping veto and margin.
+        let m = Model::builtin();
+        let veto = Veto::from_words(Lang::En, ["agent", "aberrant", "advent", "code", "word"]);
+        for w in ["'agent", "\"aberrant", "[advent", "`code`", "word'"] {
+            assert!(!should_convert(w, &remap_lossy(w), &m, &veto, &[]), "{w}");
+        }
+        assert!(
+            decide("c]tim", "съешь"),
+            "a punctuation key inside a word still counts"
+        );
+    }
+
+    fn remap_lossy(word: &str) -> String {
+        word.chars()
+            .map(|c| {
+                US.chars()
+                    .position(|f| f == c)
+                    .and_then(|i| RU.chars().nth(i))
+                    .unwrap_or(c)
+            })
+            .collect()
     }
 
     #[test]

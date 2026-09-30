@@ -134,12 +134,8 @@ impl Application for Applet {
                     });
                 }
             }
-            Message::ActiveApp(app) => {
-                self.active_app = Some(app.clone());
-                return Task::perform(daemon::set_active_app(app), |()| {
-                    cosmic::action::app(Message::Done)
-                });
-            }
+            // Already sent to the daemon by the subscription; kept for a daemon restart.
+            Message::ActiveApp(app) => self.active_app = Some(app),
             Message::SetAuto(on) => {
                 self.config.auto_enabled = on;
                 daemon::save_config(&self.config);

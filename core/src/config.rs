@@ -35,11 +35,18 @@ pub const DEFAULT_EXCLUDED_APPS: &[&str] = &[
     "foot",
     "org.gnome.Console",
     "org.gnome.Terminal",
+    "org.gnome.Ptyxis",
+    "org.kde.konsole",
+    "com.mitchellh.ghostty",
     "code",
     "com.microsoft.VSCode",
+    "com.visualstudio.code",
     "codium",
     "dev.zed.Zed",
     "jetbrains-*",
+    // Password prompts.
+    "pinentry-*",
+    "org.freedesktop.PolicyKit*",
 ];
 
 impl Default for Config {

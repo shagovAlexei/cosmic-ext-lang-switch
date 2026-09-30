@@ -77,6 +77,8 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `duplicate_hotkeys_conflict` | two actions on one combination (only one could ever fire) |
 | `layouts_are_described` (daemon) | wrong names in the popup's layout list |
 | `tech_words_outside_dictionaries_are_left_alone` | `http` → `реез` and similar purpose-typed Latin being auto-corrected |
+| `auto_corrects_when_space_is_released`, `no_auto_while_a_modifier_is_held_at_space_release` | the space after a corrected word vanishing (replay while the physical Space was down); Shift held through the replay |
+| `quotes_and_brackets_around_a_word_are_left_alone` | `'agent`, `[advent` bypassing the dictionary veto |
 | `auto_skips_words_ending_in_punctuation` | "hello," becoming "руддщб" (`,` and `б` share a key) |
 | `insert_after_auto_undoes_and_remembers_the_word` | an undone auto-correction happening again |
 | `veto_reads_hunspell_stems` (daemon) | dictionary words losing their protection |

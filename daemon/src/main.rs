@@ -165,6 +165,9 @@ fn apply_auto(engine: &mut Engine, config: &Config, active_app: &str) {
 
 /// Remember undone auto-corrections; the config watch then reloads them.
 fn save_exceptions(actions: &[Action]) {
+    if !actions.iter().any(|a| matches!(a, Action::AddException(_))) {
+        return;
+    }
     let mut config = load_config();
     let mut changed = false;
     for a in actions {
@@ -220,6 +223,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
     let seen: input::Seen = Arc::default();
+    // Before grabbing keyboards: loading takes ~0.1 s and would stall typing.
+    let (veto, words) = tables::load_veto(std::path::Path::new("/usr/share/hunspell"));
+    log::info!("auto-correction dictionary veto: {words} words");
     // The virtual keyboard must exist before any keyboard is grabbed: it forwards their keys.
     let mut keyboard = input::Keyboard::new()
         .inspect_err(|e| log::error!("uinput: {e}"))
@@ -244,8 +250,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.set_layouts(layouts.len() as u32);
     engine.set_enabled(config.enabled && status == "ok");
     engine.on_group(*group_rx.borrow_and_update());
-    let (veto, words) = tables::load_veto(std::path::Path::new("/usr/share/hunspell"));
-    log::info!("auto-correction dictionary veto: {words} words");
     engine.auto.veto = veto;
     engine.auto.tables.clone_from(&tables);
     // Set by the applet over D-Bus; empty until it reports (then nothing is excluded).
@@ -337,6 +341,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publish(&conn, |s| s.layouts = l).await;
             }
             Some(app) = app_rx.recv() => {
+                // New focus: the typed buffer belongs to the old window.
+                engine.reset();
                 engine.auto.app_excluded = config.app_excluded(&app);
                 active_app = app;
             }
@@ -352,7 +358,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(()) = lock_rx.recv() => {
                 engine.reset();
                 engine.release_mods();
-                log::info!("session locked: buffer cleared");
+                // No Unlock signal on COSMIC: auto-correction stays off (the lock screen
+                // takes passwords) until the applet reports a focused window again.
+                engine.auto.app_excluded = true;
+                log::info!("session locked: buffer cleared, auto-correction suspended");
             }
             _ = rescan.tick() => { input::spawn_new_devices(&seen, &key_tx, grab); }
         }

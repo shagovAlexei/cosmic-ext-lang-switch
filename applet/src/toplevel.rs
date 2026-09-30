@@ -22,7 +22,7 @@ use cosmic::cctk::wayland_protocols::ext::foreign_toplevel_list::v1::client::{
 };
 use cosmic::iced::futures::{SinkExt, StreamExt, channel::mpsc};
 use cosmic::iced::{Subscription, stream};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
@@ -35,7 +35,8 @@ struct State {
     app_ids: HashMap<ObjectId, String>,
     /// cosmic handle → ext handle.
     ext_of: HashMap<ObjectId, ObjectId>,
-    active: Option<String>,
+    /// Cosmic handles currently activated.
+    activated: HashSet<ObjectId>,
     tx: mpsc::UnboundedSender<String>,
 }
 
@@ -122,22 +123,24 @@ impl Dispatch<ZcosmicToplevelHandleV1, ()> for State {
             .iter()
             .any(|&c| u32::from_ne_bytes(c) == ACTIVATED);
         if !activated {
+            s.activated.remove(&h.id());
             return;
         }
-        let app = s
-            .ext_of
-            .get(&h.id())
-            .and_then(|ext| s.app_ids.get(ext))
-            .cloned()
-            .unwrap_or_default();
-        if s.active.as_ref() != Some(&app) {
-            s.active = Some(app.clone());
+        // Report every time a window *gains* focus, even the same app again: after the
+        // lock screen the daemon waits for such a report to resume auto-correction.
+        if s.activated.insert(h.id()) {
+            let app = s
+                .ext_of
+                .get(&h.id())
+                .and_then(|ext| s.app_ids.get(ext))
+                .cloned()
+                .unwrap_or_default();
             let _ = s.tx.unbounded_send(app);
         }
     }
 }
 
-/// Blocks, sending the focused app id on every change; returns if Wayland goes away.
+/// Blocks, sending the app id of each window that gains focus; returns if Wayland goes away.
 fn watch(tx: mpsc::UnboundedSender<String>) {
     let Some(socket) = std::env::var("X_PRIVILEGED_WAYLAND_SOCKET")
         .ok()
@@ -158,7 +161,7 @@ fn watch(tx: mpsc::UnboundedSender<String>) {
             info,
             app_ids: HashMap::new(),
             ext_of: HashMap::new(),
-            active: None,
+            activated: HashSet::new(),
             tx,
         };
         loop {
@@ -170,13 +173,15 @@ fn watch(tx: mpsc::UnboundedSender<String>) {
     }
 }
 
-/// The focused window's app id, on every change.
+/// The focused window's app id whenever a window gains focus. Each one is also
+/// sent to the daemon from here, one after another, so they arrive in order.
 pub fn subscription() -> Subscription<String> {
     Subscription::run(|| {
         stream::channel(8, |mut out: mpsc::Sender<String>| async move {
             let (tx, mut rx) = mpsc::unbounded();
             std::thread::spawn(move || watch(tx));
             while let Some(app) = rx.next().await {
+                crate::daemon::set_active_app(app.clone()).await;
                 let _ = out.send(app).await;
             }
         })

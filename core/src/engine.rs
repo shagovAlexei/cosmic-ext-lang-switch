@@ -94,6 +94,8 @@ pub struct Engine {
     swallowed: Vec<u16>,
     /// While a hotkey is being recorded in the settings window: forward every key.
     paused: bool,
+    /// Space was just pressed after a word: auto-correct on its release.
+    space_armed: bool,
 }
 
 impl Engine {
@@ -112,6 +114,7 @@ impl Engine {
             expected: None,
             swallowed: Vec::new(),
             paused: false,
+            space_armed: false,
         }
     }
 
@@ -170,6 +173,7 @@ impl Engine {
     }
 
     pub fn reset(&mut self) {
+        self.space_armed = false;
         self.strokes.clear();
         self.last = None;
         self.pending = None;
@@ -200,6 +204,13 @@ impl Engine {
     }
 
     pub fn on_key(&mut self, code: u16, value: i32) -> Option<Vec<Action>> {
+        let armed = std::mem::take(&mut self.space_armed);
+        // Auto-correction runs on the space *release*: replaying while the physical
+        // key is down would make the kernel drop the replayed space press.
+        if code == keys::SPACE && value == 0 && armed && self.pending.is_none() && !self.mods.any()
+        {
+            return self.auto_correct();
+        }
         if let Some(m) = keys::modifier(code) {
             self.mods.set(m, value != 0);
             return self.fire_if_released(value);
@@ -227,12 +238,7 @@ impl Engine {
         }
         match keys::kind(code) {
             Kind::Printable => {
-                if code == keys::SPACE
-                    && value == 1
-                    && let Some(actions) = self.auto_correct()
-                {
-                    return Some(actions);
-                }
+                self.space_armed = code == keys::SPACE && value == 1;
                 self.last = None;
                 self.strokes.push(Stroke {
                     code,
@@ -251,37 +257,29 @@ impl Engine {
         None
     }
 
-    /// On space: retype the word just finished in the other layout if it was
-    /// clearly typed in the wrong one. Pushes the space either way when it fires.
+    /// On space release: retype the word just finished (and its space) in the other
+    /// layout if it was clearly typed in the wrong one.
     fn auto_correct(&mut self) -> Option<Vec<Action>> {
         let a = &self.auto;
-        if !a.enabled
-            || a.app_excluded
-            || self.layouts < 2
-            || a.tables.len() < self.layouts as usize
-        {
+        let group = self.group as usize;
+        if !a.enabled || a.app_excluded || self.layouts < 2 || group >= a.tables.len() {
             return None;
         }
-        let start = self
-            .strokes
+        let to = (self.group + 1) % self.layouts;
+        let (last, before) = self.strokes.split_last()?;
+        if last.code != keys::SPACE || to as usize >= a.tables.len() {
+            return None;
+        }
+        let start = before
             .iter()
             .rposition(|s| s.code == keys::SPACE)
             .map_or(0, |i| i + 1);
-        let word = self.strokes[start..].to_vec();
-        let to = (self.group + 1) % self.layouts;
-        let typed = crate::auto::render(&word, &a.tables[self.group as usize])?;
-        // `,` `.` `;` sit on Russian letter keys: "hello," would become "руддщб".
-        if typed.ends_with([',', '.', ';', ':', '!', '?']) {
-            return None;
-        }
-        let other = crate::auto::render(&word, &a.tables[to as usize])?;
+        let word = &before[start..];
+        let typed = crate::auto::render(word, &a.tables[group])?;
+        let other = crate::auto::render(word, &a.tables[to as usize])?;
         if !crate::auto::should_convert(&typed, &other, &a.model, &a.veto, &a.exceptions) {
             return None;
         }
-        self.strokes.push(Stroke {
-            code: keys::SPACE,
-            shift: self.mods.shift,
-        });
         let len = word.len() + 1;
         let tail = self.strokes[self.strokes.len() - len..].to_vec();
         self.last = Some(Last {
@@ -721,12 +719,21 @@ mod tests {
         v
     }
 
+    /// Space press and release; the correction comes on the release.
+    fn space(e: &mut Engine) -> Option<Vec<Action>> {
+        assert!(
+            e.on_key(keys::SPACE, 1).is_none(),
+            "never on the press: the key is still down"
+        );
+        e.on_key(keys::SPACE, 0)
+    }
+
     #[test]
-    fn auto_corrects_on_space() {
+    fn auto_corrects_when_space_is_released() {
         let mut e = auto_engine();
         typed(&mut e, &GHBDTN);
         assert_eq!(
-            e.on_key(keys::SPACE, 1),
+            space(&mut e),
             Some(vec![
                 Action::Backspace(7),
                 Action::SwitchLayout(1),
@@ -739,8 +746,7 @@ mod tests {
     fn insert_after_auto_undoes_and_remembers_the_word() {
         let mut e = auto_engine();
         typed(&mut e, &GHBDTN);
-        e.on_key(keys::SPACE, 1);
-        e.on_key(keys::SPACE, 0);
+        space(&mut e);
         e.on_group(1);
         assert_eq!(
             tap(&mut e, INSERT),
@@ -753,7 +759,24 @@ mod tests {
         );
         e.on_group(0);
         typed(&mut e, &GHBDTN);
-        assert_eq!(e.on_key(keys::SPACE, 1), None, "remembered as an exception");
+        assert_eq!(space(&mut e), None, "remembered as an exception");
+    }
+
+    #[test]
+    fn no_auto_while_a_modifier_is_held_at_space_release() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        e.on_key(keys::LEFTSHIFT, 1);
+        assert_eq!(space(&mut e), None);
+    }
+
+    #[test]
+    fn auto_needs_the_space_press_right_before_its_release() {
+        let mut e = auto_engine();
+        typed(&mut e, &GHBDTN);
+        e.on_key(keys::SPACE, 1);
+        tap(&mut e, 34); // another key between press and release
+        assert_eq!(e.on_key(keys::SPACE, 0), None);
     }
 
     #[test]
@@ -761,11 +784,11 @@ mod tests {
         let mut e = auto_engine();
         e.auto.enabled = false;
         typed(&mut e, &GHBDTN);
-        assert_eq!(e.on_key(keys::SPACE, 1), None);
+        assert_eq!(space(&mut e), None);
         let mut e = auto_engine();
         e.auto.app_excluded = true;
         typed(&mut e, &GHBDTN);
-        assert_eq!(e.on_key(keys::SPACE, 1), None);
+        assert_eq!(space(&mut e), None);
     }
 
     #[test]
@@ -773,7 +796,7 @@ mod tests {
         // `,` and `б` share a key: retyping would turn "hello," into "руддщб".
         let mut e = auto_engine();
         typed(&mut e, &[34, 35, 48, 32, 20, 49, 51]);
-        assert_eq!(e.on_key(keys::SPACE, 1), None);
+        assert_eq!(space(&mut e), None);
     }
 
     #[test]
@@ -781,7 +804,7 @@ mod tests {
         let mut e = auto_engine();
         e.on_group(1);
         typed(&mut e, &GHBDTN); // "привет" on the Russian layout
-        assert_eq!(e.on_key(keys::SPACE, 1), None);
+        assert_eq!(space(&mut e), None);
     }
 
     #[test]

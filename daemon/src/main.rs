@@ -20,28 +20,19 @@ fn comp_layouts() -> Vec<String> {
     labels(&comp_xkb())
 }
 
-/// The primary selection (highlighted text).
-fn read_selection() -> Result<String, wl_clipboard_rs::paste::Error> {
-    use wl_clipboard_rs::paste::{ClipboardType, MimeType, Seat, get_contents};
-    let (mut pipe, _) = get_contents(ClipboardType::Primary, Seat::Unspecified, MimeType::Text)?;
-    let mut text = String::new();
-    std::io::Read::read_to_string(&mut pipe, &mut text)
-        .map_err(wl_clipboard_rs::paste::Error::PipeCreation)?;
-    Ok(text)
-}
-
 /// Delete the selection, switch to the other layout, retype it there.
 async fn selection_actions(
+    wl: &Arc<wayland::Wayland>,
     tables: &[lsc::selection::Table],
     group: u32,
     unknown: lsc::selection::Unknown,
 ) -> Option<Vec<Action>> {
-    let read = tokio::task::spawn_blocking(read_selection);
+    let wl = wl.clone();
+    let read = tokio::task::spawn_blocking(move || wl.read_selection());
     let text = tokio::time::timeout(Duration::from_millis(300), read)
         .await
         .ok()?
-        .ok()?
-        .ok()?;
+        .ok()??;
     let (to, keys) = lsc::selection::convert(&text, tables, group, unknown)?;
     if keys.len() < text.chars().count() {
         log::warn!(
@@ -93,18 +84,14 @@ async fn check() -> i32 {
     );
     let names = comp_layouts();
     line("layouts", names.len() >= 2, names.join(","));
-    let sel = tokio::task::spawn_blocking(read_selection).await;
-    let missing = matches!(
-        sel,
-        Ok(Err(wl_clipboard_rs::paste::Error::MissingProtocol { .. }))
-    );
+    let sel = wl.as_ref().is_ok_and(wayland::Wayland::has_selection);
     line(
         "selection",
-        !missing,
-        if missing {
-            "no data-control protocol".into()
-        } else {
+        sel,
+        if sel {
             String::new()
+        } else {
+            "no ext_data_control_manager_v1 on this connection".into()
         },
     );
     bad.min(1)
@@ -307,7 +294,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(mut actions) = out.actions else { continue };
                 if actions == [Action::ConvertSelection] {
                     let group = *group_rx.borrow();
-                    let Some(a) = selection_actions(&tables, group, config.unknown()).await else { continue };
+                    let Some(w) = wl.as_ref() else { continue };
+                    let Some(a) = selection_actions(w, &tables, group, config.unknown()).await else { continue };
                     actions = a;
                 }
                 if let (Some(kb), Some(l)) = (keyboard.as_mut(), layout.as_deref()) {

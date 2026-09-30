@@ -23,6 +23,10 @@ Spec: `docs/superpowers/specs/2026-09-30-lang-switch-phase-a-design.md`, plans: 
 
 Prior art to learn from, not depend on: `netherguy4/punto-rs` (Rust, evdev/uinput, manual), `arumata/gswitch` (Go, double-Shift), `Shah-man/autoswitch` (auto mode, GPLv3).
 
+## Workflow
+
+All changes land through pull requests on GitHub (`shagovAlexei/cosmic-ext-lang-switch`): work on a feature branch, push it, open a PR against `main`. Never merge or commit to `main` locally.
+
 ## Commands
 
 ```bash

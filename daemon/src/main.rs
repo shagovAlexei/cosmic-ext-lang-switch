@@ -115,7 +115,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|a| a == "--check") {
         std::process::exit(check().await);
     }
-    simple_logger::init_with_env()?; // log state changes only, never key events
+    // INFO unless RUST_LOG says otherwise (simple_logger defaults to TRACE). Never log key events.
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .with_module_level("zbus", log::LevelFilter::Warn)
+        .with_module_level("tracing", log::LevelFilter::Warn)
+        .env()
+        .init()?;
 
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
     let seen: input::Seen = Arc::default();

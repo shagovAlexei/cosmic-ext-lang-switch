@@ -82,3 +82,4 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `auto_skips_words_ending_in_punctuation` | "hello," becoming "руддщб" (`,` and `б` share a key) |
 | `insert_after_auto_undoes_and_remembers_the_word` | an undone auto-correction happening again |
 | `veto_reads_hunspell_stems` (daemon) | dictionary words losing their protection |
+| `colloquial_russian_outside_dictionaries_is_left_alone` | `щас` becoming `ofc` |

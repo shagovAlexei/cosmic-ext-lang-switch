@@ -29,6 +29,8 @@ pub enum Message {
     SetEnabled(bool),
     WordInput(String),
     PhraseInput(String),
+    SelectionInput(String),
+    SetAbortOnUnknown(bool),
 }
 
 pub struct Applet {
@@ -38,6 +40,7 @@ pub struct Applet {
     daemon: Daemon,
     word: String,
     phrase: String,
+    selection: String,
     label: String,
 }
 
@@ -133,7 +136,11 @@ impl Application for Applet {
         let config = cosmic_config::Config::new(APP_ID, Config::VERSION)
             .map(|h| Config::get_entry(&h).unwrap_or_else(|(_, c)| c))
             .unwrap_or_default();
-        let (word, phrase) = (config.hotkey_word.clone(), config.hotkey_phrase.clone());
+        let (word, phrase, selection) = (
+            config.hotkey_word.clone(),
+            config.hotkey_phrase.clone(),
+            config.hotkey_selection.clone(),
+        );
         let mut applet = Self {
             core,
             popup: None,
@@ -141,6 +148,7 @@ impl Application for Applet {
             daemon: Daemon::default(),
             word,
             phrase,
+            selection,
             label: String::new(),
         };
         applet.refresh_label();
@@ -216,6 +224,17 @@ impl Application for Applet {
                 }
                 self.phrase = s;
             }
+            Message::SelectionInput(s) => {
+                if s.parse::<Hotkey>().is_ok() {
+                    self.config.hotkey_selection = s.clone();
+                    self.save();
+                }
+                self.selection = s;
+            }
+            Message::SetAbortOnUnknown(on) => {
+                self.config.abort_on_unknown = on;
+                self.save();
+            }
         }
         self.refresh_label();
         Task::none()
@@ -260,7 +279,16 @@ impl Application for Applet {
             ))
             .push(layouts)
             .push(self.hotkey_row(fl!("hotkey-word"), &self.word, Message::WordInput))
-            .push(self.hotkey_row(fl!("hotkey-phrase"), &self.phrase, Message::PhraseInput));
+            .push(self.hotkey_row(fl!("hotkey-phrase"), &self.phrase, Message::PhraseInput))
+            .push(self.hotkey_row(
+                fl!("hotkey-selection"),
+                &self.selection,
+                Message::SelectionInput,
+            ))
+            .push(settings::item(
+                fl!("abort-on-unknown"),
+                widget::toggler(self.config.abort_on_unknown).on_toggle(Message::SetAbortOnUnknown),
+            ));
         self.core.applet.popup_container(col).into()
     }
 }

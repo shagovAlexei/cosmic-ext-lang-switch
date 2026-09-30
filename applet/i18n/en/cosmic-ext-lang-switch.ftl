@@ -1,6 +1,8 @@
 enabled = Fix wrong layout
 hotkey-word = Fix last word
 hotkey-phrase = Fix phrase
+hotkey-selection = Fix selection
+abort-on-unknown = Skip fixing a selection with characters no layout can type
 hotkey-invalid = Unknown key. Examples: Insert, Super+Insert, Ctrl+F12
 daemon-missing = Service is not running: systemctl --user enable --now cosmic-ext-lang-switch
 no-input-access = No keyboard access: sudo usermod -aG input $USER, then log in again

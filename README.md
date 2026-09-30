@@ -2,7 +2,7 @@
 
 Punto Switcher–style layout fixer for COSMIC (Pop!_OS 24.04, Wayland): press a hotkey and the last word or phrase typed in the wrong layout is retyped in the other one.
 
-Default hotkeys (configurable in the applet): **Insert** fixes the last word, **Super+Insert** the phrase (press again to undo), **Alt+Insert** the selected text.
+Default hotkeys (configurable in the settings window: popup → Lang Switch Settings…, or `cosmic-ext-lang-switch --settings`): **Insert** fixes the last word, **Super+Insert** the phrase (press again to undo), **Alt+Insert** the selected text.
 
 ## Install
 

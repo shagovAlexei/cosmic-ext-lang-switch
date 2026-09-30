@@ -33,7 +33,13 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | type a word, Super+Space, Insert | nothing happens |
 | lock screen, type password, unlock, then type a word + Insert | the new word is fixed (daemon is not deaf after unlock); the password is never replayed |
 | toggle off in the applet, type, Insert | nothing happens |
-| set word hotkey to F9 in the applet | F9 works at once, Insert no longer does |
+| popup next to COSMIC's own layout applet | same look: full layout names with codes, active one bold, dividers |
+| popup: Keyboard Settings… / Region & Language… | cosmic-settings opens on that page, popup closes |
+| popup: Lang Switch Settings… | the settings window opens |
+| settings: record word hotkey, press F9 | saved; F9 fixes words at once, Insert no longer does |
+| settings: record, press the current hotkey (Insert) | it is captured, not swallowed by the daemon |
+| settings: record, press Esc / a letter / another action's combo | cancelled / hint, keeps recording / "already used" hint |
+| settings: Reset to defaults | Insert, Super+Insert, Alt+Insert |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
 
 ## Regression tests
@@ -52,3 +58,6 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | `disabled_forwards_the_hotkey` | Insert being eaten while correction is switched off |
 | `latin_goes_to_next_layout`, `cyrillic_is_detected_even_if_current_layout_is_ru` | converting a selection in the wrong direction |
 | `us_and_russian_share_physical_keys` (daemon) | xkb tables mapping characters to the wrong keys |
+| `paused_forwards_the_hotkey_and_fixes_nothing` | the daemon swallowing the key being recorded in the settings window |
+| `duplicate_hotkeys_conflict` | two actions on one combination (only one could ever fire) |
+| `layouts_are_described` (daemon) | wrong names in the popup's layout list |

@@ -12,8 +12,6 @@ pub trait LangSwitch {
     /// Forward every key and fix nothing (while a hotkey is being recorded).
     /// The daemon lifts the pause by itself after 30 s.
     fn set_paused(&self, paused: bool) -> zbus::Result<()>;
-    /// The focused window's app id (sent by the applet: only panel applets may see it).
-    fn set_active_app(&self, app_id: &str) -> zbus::Result<()>;
     /// Per layout group: (panel label, xkb layout code, description), e.g. ("RU", "by", "Russian (Belarus)").
     #[zbus(property)]
     fn layouts(&self) -> zbus::Result<Vec<(String, String, String)>>;

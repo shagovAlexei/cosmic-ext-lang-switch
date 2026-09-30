@@ -94,6 +94,11 @@ async fn check() -> i32 {
             "no ext_data_control_manager_v1 on this connection".into()
         },
     );
+    line(
+        "focus",
+        wl.as_ref().is_ok_and(wayland::Wayland::has_focus),
+        "app exclusions need the privileged connection (daemon started by the applet)".into(),
+    );
     bad.min(1)
 }
 
@@ -222,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let devices = input::spawn_new_devices(&seen, &key_tx, grab);
     let (group_tx, mut group_rx) = watch::channel(0);
     let (app_tx, mut app_rx) = mpsc::unbounded_channel();
-    let wl = wayland::Wayland::connect(group_tx, app_tx.clone())
+    let wl = wayland::Wayland::connect(group_tx, app_tx)
         .inspect_err(|e| log::error!("wayland: {e}"))
         .ok()
         .map(Arc::new);
@@ -242,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.on_group(*group_rx.borrow_and_update());
     engine.auto.veto = veto;
     engine.auto.tables.clone_from(&tables);
-    // Set by the applet over D-Bus; empty until it reports (then nothing is excluded).
+    // From the compositor's focus events; empty until the first one (then nothing is excluded).
     let mut active_app = String::new();
     apply_auto(&mut engine, &config, &active_app);
 
@@ -261,7 +266,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut pause_until: Option<tokio::time::Instant> = None;
     let service = Service {
         pause: pause_tx,
-        active_app: app_tx,
         layouts: layouts.clone(),
         current: *group_rx.borrow(),
         status: status.into(),
@@ -349,7 +353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.reset();
                 engine.release_mods();
                 // No Unlock signal on COSMIC: auto-correction stays off (the lock screen
-                // takes passwords) until the applet reports a focused window again.
+                // takes passwords) until a window gains focus again.
                 engine.auto.app_excluded = true;
                 log::info!("session locked: buffer cleared, auto-correction suspended");
             }

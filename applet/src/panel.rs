@@ -26,7 +26,6 @@ pub enum Message {
     SetLayout(u32),
     SetEnabled(bool),
     SetAuto(bool),
-    ActiveApp(String),
     Open(Open),
     Done,
 }
@@ -36,8 +35,6 @@ pub struct Applet {
     popup: Option<Id>,
     config: Config,
     daemon: Daemon,
-    /// Focused window's app id, forwarded to the daemon (it can't see it itself).
-    active_app: Option<String>,
     /// Kept as a field because `text_button` borrows it.
     label: String,
 }
@@ -75,7 +72,6 @@ impl Application for Applet {
             popup: None,
             config: daemon::load_config(),
             daemon: Daemon::default(),
-            active_app: None,
             label: String::new(),
         };
         applet.refresh_label();
@@ -92,7 +88,6 @@ impl Application for Applet {
                 .watch_config::<Config>(APP_ID)
                 .map(|u| Message::Config(u.config)),
             daemon::subscription().map(Message::Daemon),
-            crate::toplevel::subscription().map(Message::ActiveApp),
         ])
     }
 
@@ -124,18 +119,7 @@ impl Application for Applet {
                 }
                 self.config = c;
             }
-            Message::Daemon(d) => {
-                // A (re)started daemon doesn't know the focused app yet.
-                let came_up = self.daemon.status.is_empty() && !d.status.is_empty();
-                self.daemon = d;
-                if came_up && let Some(app) = self.active_app.clone() {
-                    return Task::perform(daemon::set_active_app(app), |()| {
-                        cosmic::action::app(Message::Done)
-                    });
-                }
-            }
-            // Already sent to the daemon by the subscription; kept for a daemon restart.
-            Message::ActiveApp(app) => self.active_app = Some(app),
+            Message::Daemon(d) => self.daemon = d,
             Message::SetAuto(on) => {
                 daemon::save(|h| self.config.set_auto_enabled(h, on));
             }

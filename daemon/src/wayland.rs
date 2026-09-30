@@ -8,7 +8,11 @@ use cosmic_protocols::keyboard_layout::v1::client::{
     zcosmic_keyboard_layout_manager_v1::ZcosmicKeyboardLayoutManagerV1,
     zcosmic_keyboard_layout_v1::{self, ZcosmicKeyboardLayoutV1},
 };
-use std::collections::HashMap;
+use cosmic_protocols::toplevel_info::v1::client::{
+    zcosmic_toplevel_handle_v1::{self, ZcosmicToplevelHandleV1},
+    zcosmic_toplevel_info_v1::{self, ZcosmicToplevelInfoV1},
+};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Read;
 use std::os::fd::AsFd;
@@ -27,13 +31,30 @@ use wayland_protocols::ext::data_control::v1::client::{
     ext_data_control_offer_v1::{self, ExtDataControlOfferV1},
 };
 
+use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
+    ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
+    ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
+};
+
+/// `zcosmic_toplevel_handle_v1` state value for the focused window.
+const ACTIVATED: u32 = 2;
+
 /// The primary selection's offer and its mime types.
 type Primary = Arc<Mutex<Option<(ExtDataControlOfferV1, Vec<String>)>>>;
 
 struct State {
     group: watch::Sender<u32>,
-    #[allow(dead_code)] // used from Task 4
+    /// App id of each window that gains focus.
     focus: mpsc::UnboundedSender<String>,
+    info: Option<ZcosmicToplevelInfoV1>,
+    /// ext handle → app id.
+    app_ids: HashMap<ObjectId, String>,
+    /// ext handle → its cosmic handle, to destroy it when the window closes.
+    cosmic_of: HashMap<ObjectId, ZcosmicToplevelHandleV1>,
+    /// cosmic handle → ext handle.
+    ext_of: HashMap<ObjectId, ObjectId>,
+    /// Cosmic handles currently activated.
+    activated: HashSet<ObjectId>,
     /// Offers whose mime types are still arriving.
     offers: HashMap<ObjectId, Vec<String>>,
     /// The current primary selection (highlighted text).
@@ -125,10 +146,115 @@ impl Dispatch<ExtDataControlOfferV1, ()> for State {
     }
 }
 
+impl Dispatch<ExtForeignToplevelListV1, ()> for State {
+    fn event(
+        s: &mut Self,
+        _: &ExtForeignToplevelListV1,
+        e: ext_foreign_toplevel_list_v1::Event,
+        (): &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } = e
+            && let Some(info) = &s.info
+        {
+            let cosmic = info.get_cosmic_toplevel(&toplevel, qh, ());
+            s.ext_of.insert(cosmic.id(), toplevel.id());
+            s.cosmic_of.insert(toplevel.id(), cosmic);
+        }
+    }
+
+    event_created_child!(State, ExtForeignToplevelListV1, [
+        ext_foreign_toplevel_list_v1::EVT_TOPLEVEL_OPCODE => (ExtForeignToplevelHandleV1, ())
+    ]);
+}
+
+impl Dispatch<ExtForeignToplevelHandleV1, ()> for State {
+    fn event(
+        s: &mut Self,
+        h: &ExtForeignToplevelHandleV1,
+        e: ext_foreign_toplevel_handle_v1::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match e {
+            ext_foreign_toplevel_handle_v1::Event::AppId { app_id } => {
+                let focused = s
+                    .cosmic_of
+                    .get(&h.id())
+                    .is_some_and(|c| s.activated.contains(&c.id()));
+                // A focused window whose app id arrives late (or changes) is reported again.
+                if s.app_ids.insert(h.id(), app_id.clone()).as_ref() != Some(&app_id) && focused {
+                    let _ = s.focus.send(app_id);
+                }
+            }
+            ext_foreign_toplevel_handle_v1::Event::Closed => {
+                s.app_ids.remove(&h.id());
+                if let Some(cosmic) = s.cosmic_of.remove(&h.id()) {
+                    s.ext_of.remove(&cosmic.id());
+                    s.activated.remove(&cosmic.id());
+                    cosmic.destroy();
+                }
+                h.destroy();
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZcosmicToplevelInfoV1, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &ZcosmicToplevelInfoV1,
+        _: zcosmic_toplevel_info_v1::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ZcosmicToplevelHandleV1, ()> for State {
+    fn event(
+        s: &mut Self,
+        h: &ZcosmicToplevelHandleV1,
+        e: zcosmic_toplevel_handle_v1::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let zcosmic_toplevel_handle_v1::Event::State { state } = e else {
+            return;
+        };
+        let activated = state
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&c| u32::from_ne_bytes(c) == ACTIVATED);
+        if !activated {
+            s.activated.remove(&h.id());
+            return;
+        }
+        // Report every time a window *gains* focus, even the same app again: after the
+        // lock screen the daemon waits for such a report to resume auto-correction.
+        if s.activated.insert(h.id()) {
+            let app = s
+                .ext_of
+                .get(&h.id())
+                .and_then(|ext| s.app_ids.get(ext))
+                .cloned()
+                .unwrap_or_default();
+            let _ = s.focus.send(app);
+        }
+    }
+}
+
 pub struct Wayland {
     conn: Connection,
     layout: Option<ZcosmicKeyboardLayoutV1>,
     primary: Option<Primary>,
+    has_focus: bool,
 }
 
 impl Wayland {
@@ -162,9 +288,23 @@ impl Wayland {
                 m.get_data_device(&seat, &qh, ());
                 Primary::default()
             });
+        let info = globals
+            .bind::<ZcosmicToplevelInfoV1, _, _>(&qh, 2..=3, ())
+            .ok();
+        let _list = info.as_ref().and_then(|_| {
+            globals
+                .bind::<ExtForeignToplevelListV1, _, _>(&qh, 1..=1, ())
+                .ok()
+        });
+        let has_focus = info.is_some();
         let mut state = State {
             group,
             focus,
+            info,
+            app_ids: HashMap::new(),
+            cosmic_of: HashMap::new(),
+            ext_of: HashMap::new(),
+            activated: HashSet::new(),
             offers: HashMap::new(),
             primary: primary.clone().unwrap_or_default(),
         };
@@ -174,11 +314,18 @@ impl Wayland {
             conn,
             layout,
             primary,
+            has_focus,
         })
     }
 
     pub fn has_layout(&self) -> bool {
         self.layout.is_some()
+    }
+
+    /// Whether the compositor reports toplevels here. Activation events come only on
+    /// the privileged connection; on `WAYLAND_DISPLAY` app exclusions stay off.
+    pub fn has_focus(&self) -> bool {
+        self.has_focus
     }
 
     pub fn has_selection(&self) -> bool {

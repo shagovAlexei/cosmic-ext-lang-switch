@@ -9,7 +9,6 @@ pub struct Service {
     pub status: String,
     pub layout: Option<Arc<Wayland>>,
     pub pause: tokio::sync::mpsc::UnboundedSender<bool>,
-    pub active_app: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
 #[zbus::interface(name = "io.github.shagovAlexei.CosmicExtLangSwitch")]
@@ -23,9 +22,6 @@ impl Service {
     }
     fn set_paused(&self, paused: bool) {
         let _ = self.pause.send(paused);
-    }
-    fn set_active_app(&self, app_id: String) {
-        let _ = self.active_app.send(app_id);
     }
     #[zbus(property)]
     fn layouts(&self) -> Vec<(String, String, String)> {

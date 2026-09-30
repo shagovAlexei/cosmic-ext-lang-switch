@@ -214,10 +214,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .env()
         .init()?;
 
+    // First, before any grab: a second daemon (another panel's applet started it too)
+    // must leave the keyboard alone. A taken name comes back as a reply, not an error
+    // (so `Builder::name` would let us through).
+    let conn = zbus::Connection::session().await?;
+    let reply = conn
+        .request_name_with_flags(BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into())
+        .await?;
+    if reply != zbus::fdo::RequestNameReply::PrimaryOwner {
+        log::info!("another daemon owns {BUS_NAME} ({reply:?}); exiting");
+        return Ok(());
+    }
+
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
     let seen: input::Seen = Arc::default();
     // Before grabbing keyboards: loading takes ~0.1 s and would stall typing.
-    let (veto, words) = tables::load_veto(std::path::Path::new("/usr/share/hunspell"));
+    // Inside Flatpak the host's dictionaries are under /run/host (--filesystem=host-os:ro).
+    let dict = ["/usr/share/hunspell", "/run/host/usr/share/hunspell"]
+        .map(std::path::Path::new)
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or(std::path::Path::new("/usr/share/hunspell"));
+    let (veto, words) = tables::load_veto(dict);
     log::info!("auto-correction dictionary veto: {words} words");
     // The virtual keyboard must exist before any keyboard is grabbed: it forwards their keys.
     let mut keyboard = input::Keyboard::new()
@@ -271,11 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         status: status.into(),
         layout: layout.clone(),
     };
-    let conn = zbus::connection::Builder::session()?
-        .name(BUS_NAME)?
-        .serve_at(PATH, service)?
-        .build()
-        .await?;
+    conn.object_server().at(PATH, service).await?;
 
     let (lock_tx, mut lock_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {

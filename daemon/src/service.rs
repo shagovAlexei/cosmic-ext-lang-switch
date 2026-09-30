@@ -45,7 +45,21 @@ pub async fn lock_signals(tx: tokio::sync::mpsc::UnboundedSender<()>) -> zbus::R
     let conn = zbus::Connection::system().await?;
     let manager = logind_zbus::manager::ManagerProxy::new(&conn).await?;
     // "auto" resolves to the user's display session even from a systemd --user unit.
-    let path = manager.get_session("auto").await?;
+    // "auto" resolves the caller's session; from a Flatpak sandbox it may not, so fall
+    // back to this user's session on seat0.
+    let path = match manager.get_session("auto").await {
+        Ok(p) => p,
+        Err(e) => {
+            let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata("/proc/self")?);
+            manager
+                .list_sessions()
+                .await?
+                .into_iter()
+                .find(|s| s.uid() == uid && s.seat() == "seat0")
+                .map(|s| s.path().clone())
+                .ok_or(e)?
+        }
+    };
     let session = logind_zbus::session::SessionProxy::builder(&conn)
         .path(path)?
         .build()

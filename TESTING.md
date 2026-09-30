@@ -42,6 +42,7 @@ The engine (`core/src/engine.rs`) holds all decision logic and is fully unit-tes
 | settings: ↶ next to each hotkey | that one goes back to its default; greyed out when already default; "already used" hint on conflict |
 | settings window at its default size | everything fits without scrolling, including the Status section: green dot + "running", or red dot + what is wrong (stop the service to see it) |
 | settings: Language → Русский | window and popup switch to Russian at once |
+| settings: About › | panel opens with name, version, author, Repository / Support links (open in the browser, from Flatpak too) and GPL-3.0-only; closes with ✕; follows the UI language |
 | `systemctl --user stop cosmic-ext-lang-switch` | applet shows "service is not running" |
 
 ### Auto-correction (turn it on first)

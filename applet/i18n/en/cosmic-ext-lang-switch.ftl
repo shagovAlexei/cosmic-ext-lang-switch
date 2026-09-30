@@ -28,3 +28,7 @@ auto-words = Words never auto-corrected
 auto-words-empty = Words whose auto-correction you undo with Insert appear here
 app-id-placeholder = App id, e.g. org.gnome.Terminal (* at the end matches a prefix)
 add = Add
+about = About
+about-comments = Fix text typed in the wrong keyboard layout
+about-repository = Repository
+about-support = Support

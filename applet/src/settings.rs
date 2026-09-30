@@ -44,6 +44,9 @@ pub enum Message {
     AddApp,
     RemoveApp(String),
     RemoveWord(String),
+    ShowAbout,
+    CloseAbout,
+    OpenUrl(String),
     Done,
 }
 
@@ -58,6 +61,8 @@ pub struct SettingsApp {
     tabs: widget::segmented_button::SingleSelectModel,
     /// The app id being typed into the "add excluded app" field.
     new_app: String,
+    /// Rebuilt with the labels when the UI language changes.
+    about: widget::about::About,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +87,23 @@ const LANGUAGES: [&str; 3] = ["", "en", "ru"];
 
 fn language_labels() -> Vec<String> {
     vec![fl!("language-system"), "English".into(), "Русский".into()]
+}
+
+const REPOSITORY: &str = "https://github.com/shagovAlexei/cosmic-ext-lang-switch";
+
+fn about() -> widget::about::About {
+    widget::about::About::default()
+        .name("Lang Switch")
+        .icon(widget::icon::from_name("input-keyboard-symbolic").handle())
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Shagov Alexei")
+        .comments(fl!("about-comments"))
+        .license("GPL-3.0-only")
+        .license_url("https://www.gnu.org/licenses/gpl-3.0.html")
+        .links([
+            (fl!("about-repository"), REPOSITORY.to_string()),
+            (fl!("about-support"), format!("{REPOSITORY}/issues")),
+        ])
 }
 
 impl SettingsApp {
@@ -241,6 +263,7 @@ impl Application for SettingsApp {
             languages: language_labels(),
             tabs: tabs(Page::General),
             new_app: String::new(),
+            about: about(),
         };
         app.set_header_title(fl!("settings-title"));
         let task = match app.core.main_window_id() {
@@ -270,6 +293,7 @@ impl Application for SettingsApp {
                     crate::i18n::init(&crate::i18n::requested(&c.language));
                     self.languages = language_labels();
                     self.tabs = tabs(self.page());
+                    self.about = about();
                 }
                 self.config = c;
             }
@@ -326,8 +350,12 @@ impl Application for SettingsApp {
                 crate::i18n::init(&crate::i18n::requested(&self.config.language));
                 self.languages = language_labels();
                 self.tabs = tabs(self.page());
+                self.about = about();
             }
             Message::Tab(id) => self.tabs.activate(id),
+            Message::ShowAbout => self.core.window.show_context = true,
+            Message::CloseAbout => self.core.window.show_context = false,
+            Message::OpenUrl(url) => daemon::launch("xdg-open", &url),
             Message::SetAuto(on) => {
                 daemon::save(|h| self.config.set_auto_enabled(h, on));
             }
@@ -358,6 +386,17 @@ impl Application for SettingsApp {
             Message::Done => {}
         }
         Task::none()
+    }
+
+    fn context_drawer(&self) -> Option<cosmic::app::context_drawer::ContextDrawer<'_, Message>> {
+        self.core.window.show_context.then(|| {
+            cosmic::app::context_drawer::about(
+                &self.about,
+                |url| Message::OpenUrl(url.to_string()),
+                Message::CloseAbout,
+            )
+            .title(fl!("about"))
+        })
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -405,7 +444,19 @@ impl Application for SettingsApp {
                 .into(),
         ];
         match self.page() {
-            Page::General => sections.extend([hotkeys.into(), behavior.into(), status.into()]),
+            Page::General => {
+                let about = widget::button::custom(settings::item_row(vec![
+                    widget::text::body(fl!("about"))
+                        .width(cosmic::iced::Length::Fill)
+                        .into(),
+                    widget::icon::from_name("go-next-symbolic").size(16).into(),
+                ]))
+                .class(cosmic::theme::Button::Text)
+                .width(cosmic::iced::Length::Fill)
+                .on_press(Message::ShowAbout);
+                let about = settings::section().add(about);
+                sections.extend([hotkeys.into(), behavior.into(), status.into(), about.into()]);
+            }
             Page::Auto => sections.extend(self.auto_page()),
         }
         widget::scrollable(settings::view_column(sections).padding([8, 16])).into()

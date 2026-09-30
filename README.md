@@ -39,7 +39,21 @@ It leaves alone words shorter than 3 letters, words with digits or mixed case (`
 
 ## Install
 
-Lang Switch needs a small background service that reads the keyboard (`/dev/input`) and types corrections through a virtual keyboard (`/dev/uinput`). Wayland gives applications no other way to do this, so it is installed from source and can't be a Flatpak.
+Lang Switch needs a small background service that reads the keyboard (`/dev/input`) and types corrections through a virtual keyboard (`/dev/uinput`); Wayland gives applications no other way to do this. The applet starts it. Either way you give your user keyboard access once.
+
+### Flatpak (COSMIC Store)
+
+Install "Lang Switch" from the COSMIC Store, then once:
+
+```sh
+sudo usermod -aG input $USER
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/60-cosmic-ext-lang-switch.rules
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+Log out and back in, and add "Lang Switch" to the panel. Flatpak can't set up keyboard access itself.
+
+### From source
 
 ```sh
 sudo apt install just pkg-config libxkbcommon-dev   # plus Rust from https://rustup.rs

@@ -62,7 +62,78 @@ fn build(words: &[String], lang: Lang) -> Vec<u8> {
     out
 }
 
+/// Same physical keys: US (ANSI) and Russian ЙЦУКЕН.
+const US: &str = "`qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+const RU: &str = "ёйцукенгшщзхъфывапролджэячсмитьбю";
+
+fn remap(word: &str, from: &str, to: &str) -> Option<String> {
+    word.chars()
+        .map(|c| {
+            from.chars()
+                .position(|f| f == c)
+                .and_then(|i| to.chars().nth(i))
+        })
+        .collect()
+}
+
+/// Detection rate and false-positive rate on the dictionaries, over a threshold grid.
+/// No veto: dictionary words would be vetoed anyway; this measures the trigrams
+/// alone, a stand-in for words the dictionary lacks (inflections, names, slang).
+fn eval(dir: &str) {
+    let model = lsc::auto::Model::builtin();
+    let veto = lsc::auto::Veto::default();
+    let en = words(dir, "en_US", Lang::En);
+    let ru = words(dir, "ru_RU", Lang::Ru);
+    let long = |w: &&String| w.chars().count() >= lsc::auto::MIN_LEN;
+    // (typed, other, should convert)
+    let mut cases: Vec<(String, String, bool)> = Vec::new();
+    for w in en.iter().filter(long) {
+        if let Some(r) = remap(w, US, RU) {
+            cases.push((r.clone(), w.clone(), true)); // English typed on the Russian layout
+            cases.push((w.clone(), r, false)); // English typed right
+        }
+    }
+    for w in ru.iter().filter(long) {
+        if let Some(u) = remap(w, RU, US) {
+            cases.push((u.clone(), w.clone(), true));
+            cases.push((w.clone(), u, false));
+        }
+    }
+    let pos = cases.iter().filter(|c| c.2).count();
+    let neg = cases.len() - pos;
+    println!("cases: {pos} wrong-layout, {neg} right-layout");
+    println!("margin floor  caught%  false+%");
+    for margin in [0.5_f32, 1.0, 1.5, 2.0, 2.5, 3.0] {
+        for floor in [-7.0_f32, -6.0, -5.5, -5.0, -4.5] {
+            let (mut tp, mut fp) = (0, 0);
+            for (typed, other, want) in &cases {
+                let got =
+                    lsc::auto::should_convert_with(typed, other, &model, &veto, &[], margin, floor);
+                match (got, want) {
+                    (true, true) => tp += 1,
+                    (true, false) => fp += 1,
+                    _ => {}
+                }
+            }
+            #[allow(clippy::cast_precision_loss)]
+            let pct = |a: usize, b: usize| 100.0 * a as f64 / b as f64;
+            println!(
+                "{margin:>6} {floor:>5}  {:>6.2}  {:>6.3}",
+                pct(tp, pos),
+                pct(fp, neg)
+            );
+        }
+    }
+}
+
 fn main() {
+    if std::env::args().any(|a| a == "--eval") {
+        let dir = std::env::args()
+            .skip(1)
+            .find(|a| a != "--eval")
+            .unwrap_or_else(|| "/usr/share/hunspell".into());
+        return eval(&dir);
+    }
     let dir = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "/usr/share/hunspell".into());

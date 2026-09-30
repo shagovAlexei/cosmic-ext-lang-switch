@@ -3,6 +3,126 @@
 //! Letter-trigram models for English and Russian (built by `tools/gen-model`
 //! from hunspell dictionaries) plus a dictionary veto.
 
+use crate::engine::Stroke;
+use crate::selection::Table;
+use std::collections::HashSet;
+
+/// Words shorter than this are never converted: too little evidence.
+pub const MIN_LEN: usize = 3;
+/// How much more likely (mean log2 per trigram) the other layout's reading must be.
+pub const MARGIN: f32 = 2.0;
+/// The other layout's reading must itself look like a word at least this much.
+pub const FLOOR: f32 = -6.0;
+
+/// Latin tokens typed on purpose that hunspell's English dictionary lacks and whose
+/// Russian-layout reading looks like Russian (`http` → `реез`): trigrams alone can't
+/// tell them from a mistake, so they are always left alone.
+const TECH_WORDS: &[&str] = &[
+    "http", "https", "www", "html", "url", "uri", "api", "ssh", "sudo", "npm", "git", "json",
+    "yaml", "toml", "sql", "css", "dns", "ftp", "tcp", "udp", "usb", "pdf", "iso", "cli", "gui",
+];
+
+/// Words known to be real in a language: typed as-is, they are never converted.
+#[derive(Default)]
+pub struct Veto {
+    en: HashSet<String>,
+    ru: HashSet<String>,
+}
+
+impl Veto {
+    #[must_use]
+    pub fn from_words<S: AsRef<str>>(lang: Lang, words: impl IntoIterator<Item = S>) -> Self {
+        let mut v = Self::default();
+        v.extend(lang, words);
+        v
+    }
+
+    pub fn extend<S: AsRef<str>>(&mut self, lang: Lang, words: impl IntoIterator<Item = S>) {
+        let set = match lang {
+            Lang::En => &mut self.en,
+            Lang::Ru => &mut self.ru,
+        };
+        set.extend(words.into_iter().map(|w| w.as_ref().to_lowercase()));
+    }
+
+    #[must_use]
+    pub fn contains(&self, lang: Lang, word: &str) -> bool {
+        let set = match lang {
+            Lang::En => &self.en,
+            Lang::Ru => &self.ru,
+        };
+        set.contains(&word.to_lowercase())
+    }
+}
+
+/// The text `strokes` type under a layout table, or `None` if a key isn't in it.
+#[must_use]
+pub fn render(strokes: &[Stroke], table: &Table) -> Option<String> {
+    strokes
+        .iter()
+        .map(|s| table.iter().find(|&(_, t)| t == s).map(|(&c, _)| c))
+        .collect()
+}
+
+/// Should `typed` (as it appears now) be retyped as `other` (the same keys in the
+/// other layout)? Conservative: identifiers, short words and known words stay.
+#[must_use]
+pub fn should_convert(
+    typed: &str,
+    other: &str,
+    model: &Model,
+    veto: &Veto,
+    exceptions: &[String],
+) -> bool {
+    should_convert_with(typed, other, model, veto, exceptions, MARGIN, FLOOR)
+}
+
+/// `should_convert` with explicit thresholds (for `tools/gen-model --eval`).
+#[must_use]
+pub fn should_convert_with(
+    typed: &str,
+    other: &str,
+    model: &Model,
+    veto: &Veto,
+    exceptions: &[String],
+    margin: f32,
+    floor: f32,
+) -> bool {
+    if typed.chars().count() < MIN_LEN || typed.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    // `myVar`, `Pass1word`: an uppercase letter after the first one, with lowercase around.
+    let mixed_case =
+        typed.chars().skip(1).any(char::is_uppercase) && typed.chars().any(char::is_lowercase);
+    if mixed_case
+        || exceptions
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(typed) || e.to_lowercase() == typed.to_lowercase())
+    {
+        return false;
+    }
+    let (Some(cur), Some(to)) = (Lang::of(typed), Lang::of(other)) else {
+        return false;
+    };
+    if cur == to
+        || veto.contains(cur, typed)
+        || (cur == Lang::En && TECH_WORDS.contains(&typed.to_lowercase().as_str()))
+    {
+        return false;
+    }
+    let Some(theirs) = model.lang(to).score(other) else {
+        return false;
+    };
+    if theirs < floor {
+        return false;
+    }
+    // A reading impossible in the current language (e.g. `c]tim`) needs no margin.
+    model
+        .lang(cur)
+        .score(typed)
+        .is_none_or(|ours| theirs - ours >= margin)
+}
+
 /// A language the models know.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang {
@@ -133,6 +253,161 @@ mod tests {
         let m = Model::builtin();
         assert_eq!(m.lang(Lang::En).score("c]tim"), None);
         assert_eq!(m.lang(Lang::Ru).score("hello"), None);
+    }
+
+    fn decide(typed: &str, other: &str) -> bool {
+        should_convert(typed, other, &Model::builtin(), &Veto::default(), &[])
+    }
+
+    #[test]
+    fn wrong_layout_words_are_converted() {
+        assert!(decide("ghbdtn", "привет"));
+        assert!(decide("rfr", "как"));
+        assert!(decide("руддщ", "hello"));
+        assert!(decide("цщкдв", "world"));
+        assert!(
+            decide("c]tim", "съешь"),
+            "punctuation keys hold Russian letters"
+        );
+    }
+
+    #[test]
+    fn real_words_and_code_are_left_alone() {
+        for (typed, other) in [
+            ("hello", "руддщ"),
+            ("grep", "пкуз"),
+            ("привет", "ghbdtn"),
+            ("world", "цщкдв"),
+        ] {
+            assert!(!decide(typed, other), "{typed}");
+        }
+    }
+
+    /// Same physical keys: US and Russian ЙЦУКЕН (for building test cases).
+    fn remap(word: &str, from: &str, to: &str) -> String {
+        word.chars()
+            .map(|c| {
+                from.chars()
+                    .position(|f| f == c)
+                    .and_then(|i| to.chars().nth(i))
+                    .unwrap()
+            })
+            .collect()
+    }
+    const US: &str = "`qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+    const RU: &str = "ёйцукенгшщзхъфывапролджэячсмитьбю";
+
+    #[test]
+    fn tech_words_outside_dictionaries_are_left_alone() {
+        // Commands and jargon typed on purpose: no dictionary veto protects them.
+        let mut wrong = Vec::new();
+        for w in [
+            "git",
+            "npm",
+            "sudo",
+            "grep",
+            "cargo",
+            "rustc",
+            "http",
+            "https",
+            "json",
+            "yaml",
+            "regex",
+            "bash",
+            "zsh",
+            "vim",
+            "nginx",
+            "docker",
+            "kubectl",
+            "ssh",
+            "tmux",
+            "systemctl",
+            "localhost",
+            "github",
+            "stdout",
+            "async",
+            "wayland",
+            "cosmic",
+            "applet",
+            "config",
+            "linux",
+            "ubuntu",
+        ] {
+            if decide(w, &remap(w, US, RU)) {
+                wrong.push(w);
+            }
+        }
+        assert!(
+            wrong.len() <= 1,
+            "converted on purpose-typed words: {wrong:?}"
+        );
+    }
+
+    #[test]
+    fn common_russian_words_typed_on_us_are_caught() {
+        let mut missed = Vec::new();
+        for w in [
+            "привет",
+            "спасибо",
+            "пожалуйста",
+            "сегодня",
+            "завтра",
+            "хорошо",
+            "работа",
+            "вопрос",
+            "человек",
+            "время",
+            "должен",
+            "может",
+            "только",
+            "сейчас",
+            "почему",
+            "потому",
+            "было",
+            "будет",
+            "надо",
+            "здесь",
+            "новый",
+            "слово",
+            "день",
+            "дело",
+            "жизнь",
+        ] {
+            if !decide(&remap(w, RU, US), w) {
+                missed.push(w);
+            }
+        }
+        assert!(missed.len() <= 2, "missed: {missed:?}");
+    }
+
+    #[test]
+    fn short_words_digits_and_mixed_case_are_skipped() {
+        assert!(!decide("ls", "ды"), "too short");
+        assert!(!decide("gh1dtn", "пр1вет"), "digits");
+        assert!(!decide("ghbDtn", "приВет"), "mixed case");
+        assert!(decide("GHBDTN", "ПРИВЕТ"), "all caps is fine");
+    }
+
+    #[test]
+    fn veto_and_exceptions_win() {
+        let m = Model::builtin();
+        let veto = Veto::from_words(Lang::En, ["ghbdtn"]);
+        assert!(!should_convert("ghbdtn", "привет", &m, &veto, &[]));
+        assert!(!should_convert(
+            "ghbdtn",
+            "привет",
+            &m,
+            &Veto::default(),
+            &["ghbdtn".into()]
+        ));
+    }
+
+    #[test]
+    fn strokes_render_through_a_table() {
+        let s = |code| crate::engine::Stroke { code, shift: false };
+        let table: crate::selection::Table = [('g', s(34)), ('h', s(35))].into();
+        assert_eq!(render(&[s(34), s(35)], &table).as_deref(), Some("gh"));
+        assert_eq!(render(&[s(34), s(99)], &table), None);
     }
 
     #[test]

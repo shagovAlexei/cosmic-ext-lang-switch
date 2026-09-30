@@ -227,10 +227,11 @@ impl Engine {
         }
         match keys::kind(code) {
             Kind::Printable => {
-                if code == keys::SPACE && value == 1 {
-                    if let Some(actions) = self.auto_correct() {
-                        return Some(actions);
-                    }
+                if code == keys::SPACE
+                    && value == 1
+                    && let Some(actions) = self.auto_correct()
+                {
+                    return Some(actions);
                 }
                 self.last = None;
                 self.strokes.push(Stroke {

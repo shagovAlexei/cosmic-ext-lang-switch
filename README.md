@@ -15,3 +15,5 @@ cosmic-ext-lang-switch-daemon --check
 Then add "Lang Switch" in Settings → Desktop → Panel → Applets (restart the panel with `killall cosmic-panel` if it is not listed).
 
 The daemon reads `/dev/input` and types through `/dev/uinput`: it needs the `input` group, so it cannot be a Flatpak.
+
+Security note: the udev rule gives the `input` group write access to `/dev/uinput`, so any process of that user can inject keystrokes.

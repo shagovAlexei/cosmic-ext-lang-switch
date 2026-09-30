@@ -203,6 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(l) = lock_rx.recv() => {
                 locked = l;
                 engine.reset();
+                engine.release_mods();
                 log::info!("session {}", if l { "locked" } else { "unlocked" });
             }
             _ = rescan.tick() => { input::spawn_new_devices(&seen, &key_tx); }

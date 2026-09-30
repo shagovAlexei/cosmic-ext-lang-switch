@@ -87,6 +87,7 @@ async fn watch_daemon(out: &mut Sender<Message>) -> zbus::Result<()> {
     let p = LangSwitchProxy::new(&conn).await?;
     let mut cur = p.receive_current_layout_changed().await;
     let mut lay = p.receive_layouts_changed().await;
+    let mut owner = p.inner().receive_owner_changed().await?;
     loop {
         let d = Daemon {
             layouts: p.layouts().await?,
@@ -94,7 +95,11 @@ async fn watch_daemon(out: &mut Sender<Message>) -> zbus::Result<()> {
             status: p.status().await?,
         };
         let _ = out.send(Message::Daemon(d)).await;
-        tokio::select! { _ = cur.next() => {}, _ = lay.next() => {} }
+        tokio::select! {
+            _ = cur.next() => {}
+            _ = lay.next() => {}
+            o = owner.next() => if o.is_none_or(|o| o.is_none()) { return Ok(()) },
+        }
     }
 }
 

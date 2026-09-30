@@ -75,6 +75,12 @@ impl Engine {
         self.pending = None;
     }
 
+    /// Forget held modifiers: their release may have been dropped (e.g. while locked).
+    pub fn release_mods(&mut self) {
+        self.mods = Mods::default();
+        self.pending = None;
+    }
+
     /// Active layout group reported by the compositor.
     pub fn on_group(&mut self, group: u32) {
         if self.expected == Some(group) {
@@ -100,6 +106,11 @@ impl Engine {
             return None;
         }
         if !self.enabled {
+            return None;
+        }
+        if value == 2 {
+            // Wayland clients repeat on their own timer; kernel repeats can't be counted.
+            self.reset();
             return None;
         }
         if self.mods.ctrl || self.mods.alt || self.mods.sup {
@@ -336,12 +347,23 @@ mod tests {
     }
 
     #[test]
-    fn autorepeat_appends() {
+    fn autorepeat_resets_buffer() {
+        // Wayland clients repeat on their own timer, so kernel repeats can't be counted.
         let mut e = engine();
+        typed(&mut e, &GHBDTN);
         e.on_key(34, 1);
         e.on_key(34, 2);
         e.on_key(34, 0);
-        assert_eq!(tap(&mut e, INSERT).unwrap()[0], Action::Backspace(2));
+        assert_eq!(tap(&mut e, INSERT), None);
+    }
+
+    #[test]
+    fn stale_modifier_after_lock_is_cleared() {
+        let mut e = engine();
+        e.on_key(SUPER, 1); // Super+Esc locked the screen; its release was dropped while locked
+        e.release_mods();
+        typed(&mut e, &GHBDTN);
+        assert!(tap(&mut e, INSERT).is_some());
     }
 
     #[test]

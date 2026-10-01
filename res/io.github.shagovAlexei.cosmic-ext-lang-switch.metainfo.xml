@@ -35,7 +35,7 @@
     <p xml:lang="ru">Нужна фоновая служба с доступом к клавиатуре (группа input); см. README.</p>
   </description>
   <launchable type="desktop-id">io.github.shagovAlexei.cosmic-ext-lang-switch.desktop</launchable>
-  <icon type="stock">input-keyboard-symbolic</icon>
+  <icon type="stock">io.github.shagovAlexei.cosmic-ext-lang-switch</icon>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/shagovAlexei/cosmic-ext-lang-switch/main/screenshots/popup.png</image>
@@ -63,6 +63,11 @@
     <category>Utility</category>
   </categories>
   <releases>
+    <release version="0.1.2" date="2026-10-01">
+      <description>
+        <p>App icon.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-01">
       <description>
         <p>About page in the settings. Fixed: the popup could show "service not running" after login although the service was running.</p>

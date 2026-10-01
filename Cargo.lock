@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-lang-switch"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cosmic-ext-lang-switch-core",
  "i18n-embed",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-lang-switch-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cosmic-config",
  "ron 0.8.1",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-lang-switch-daemon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cosmic-config",
  "cosmic-ext-lang-switch-core",

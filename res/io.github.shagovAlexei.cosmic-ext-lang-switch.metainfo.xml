@@ -63,6 +63,11 @@
     <category>Utility</category>
   </categories>
   <releases>
+    <release version="0.1.2" date="2026-10-01">
+      <description>
+        <p>App icon.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-01">
       <description>
         <p>About page in the settings. Fixed: the popup could show "service not running" after login although the service was running.</p>

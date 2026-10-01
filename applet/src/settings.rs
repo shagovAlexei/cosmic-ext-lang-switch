@@ -94,7 +94,7 @@ const REPOSITORY: &str = "https://github.com/shagovAlexei/cosmic-ext-lang-switch
 fn about() -> widget::about::About {
     widget::about::About::default()
         .name("Lang Switch")
-        .icon(widget::icon::from_name("input-keyboard-symbolic").handle())
+        .icon(widget::icon::from_name(APP_ID).handle())
         .version(env!("CARGO_PKG_VERSION"))
         .author("Shagov Alexei")
         .comments(fl!("about-comments"))

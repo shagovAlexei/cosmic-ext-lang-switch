@@ -35,7 +35,7 @@
     <p xml:lang="ru">Нужна фоновая служба с доступом к клавиатуре (группа input); см. README.</p>
   </description>
   <launchable type="desktop-id">io.github.shagovAlexei.cosmic-ext-lang-switch.desktop</launchable>
-  <icon type="stock">input-keyboard-symbolic</icon>
+  <icon type="stock">io.github.shagovAlexei.cosmic-ext-lang-switch</icon>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/shagovAlexei/cosmic-ext-lang-switch/main/screenshots/popup.png</image>

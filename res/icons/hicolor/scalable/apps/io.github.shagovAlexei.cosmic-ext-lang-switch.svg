@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect x="8" y="16" width="112" height="96" rx="20" fill="#3b82c4"/>
+  <rect x="8" y="16" width="112" height="88" rx="20" fill="#5aa0e0"/>
+  <text x="40" y="74" font-family="sans-serif" font-size="44" font-weight="700" fill="#fff" text-anchor="middle">A</text>
+  <text x="88" y="74" font-family="sans-serif" font-size="44" font-weight="700" fill="#fff" text-anchor="middle">Я</text>
+  <path d="M46 88 Q64 100 82 88" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M76 82 L84 87 L76 94" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

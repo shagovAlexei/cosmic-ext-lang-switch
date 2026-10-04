@@ -101,3 +101,4 @@ Source install: `sudo just install`, re-add the applet (or log in again). Flatpa
 | `veto_reads_hunspell_stems` (daemon) | dictionary words losing their protection |
 | `colloquial_russian_outside_dictionaries_is_left_alone` | `щас` becoming `ofc` |
 | `socket_fd_accepts_only_an_open_socket` (core) | the daemon aborting on a stale `X_PRIVILEGED_WAYLAND_SOCKET` inherited from a panel-launched program |
+| `keyboard_that_is_also_a_pointer_is_not_grabbed` (daemon) | ydotoold / LogiOps virtual devices (keyboard + mouse in one) losing pointer motion, buttons and wheel to our grab |

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use evdev::{AttributeSet, Device, EventType, InputEvent, KeyCode, uinput::VirtualDevice};
+use evdev::{
+    AttributeSet, AttributeSetRef, Device, EventType, InputEvent, KeyCode, RelativeAxisCode,
+    uinput::VirtualDevice,
+};
 use lsc::engine::Stroke;
 use lsc::keys::{BACKSPACE, LEFTSHIFT};
 use std::collections::HashSet;
@@ -17,6 +20,19 @@ pub type KeyEvent = (u16, i32, bool);
 fn is_keyboard(dev: &Device) -> bool {
     dev.supported_keys()
         .is_some_and(|k| k.contains(KeyCode::KEY_A) && k.contains(KeyCode::KEY_SPACE))
+}
+
+/// Only pure keyboards are grabbed. A keyboard that is also a pointer (ydotoold,
+/// LogiOps) would lose its motion, buttons and wheel: we forward key events only.
+fn grabbable(
+    keys: Option<&AttributeSetRef<KeyCode>>,
+    rel: Option<&AttributeSetRef<RelativeAxisCode>>,
+) -> bool {
+    keys.is_some_and(|k| {
+        k.contains(KeyCode::KEY_A)
+            && k.contains(KeyCode::KEY_SPACE)
+            && !k.contains(KeyCode::BTN_LEFT)
+    }) && !rel.is_some_and(|r| r.contains(RelativeAxisCode::REL_X))
 }
 
 /// Keyboards, plus mice and touchpads (their clicks and touches clear the buffer).
@@ -39,7 +55,9 @@ pub fn spawn_new_devices(seen: &Seen, tx: &UnboundedSender<KeyEvent>, grab: bool
         if seen.lock().unwrap().contains(&path) || !wanted(&dev) {
             continue;
         }
-        let grabbed = grab && is_keyboard(&dev) && dev.grab().is_ok();
+        let grabbed = grab
+            && grabbable(dev.supported_keys(), dev.supported_relative_axes())
+            && dev.grab().is_ok();
         let Ok(mut stream) = dev.into_event_stream() else {
             continue;
         };
@@ -100,5 +118,32 @@ impl Keyboard {
 
     pub fn backspace(&mut self) -> io::Result<()> {
         self.tap(BACKSPACE)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_that_is_also_a_pointer_is_not_grabbed() {
+        let kbd: AttributeSet<KeyCode> = [KeyCode::KEY_A, KeyCode::KEY_SPACE].into_iter().collect();
+        let combo: AttributeSet<KeyCode> = [KeyCode::KEY_A, KeyCode::KEY_SPACE, KeyCode::BTN_LEFT]
+            .into_iter()
+            .collect();
+        let xy: AttributeSet<RelativeAxisCode> = [RelativeAxisCode::REL_X, RelativeAxisCode::REL_Y]
+            .into_iter()
+            .collect();
+        assert!(grabbable(Some(&kbd), None), "plain keyboard");
+        assert!(
+            !grabbable(Some(&combo), Some(&xy)),
+            "ydotoold: keys + buttons + motion"
+        );
+        assert!(
+            !grabbable(Some(&kbd), Some(&xy)),
+            "keys + motion, no buttons"
+        );
+        assert!(!grabbable(Some(&combo), None), "keys + buttons, no motion");
+        assert!(!grabbable(None, Some(&xy)), "mouse");
     }
 }

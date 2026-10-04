@@ -63,6 +63,11 @@
     <category>Utility</category>
   </categories>
   <releases>
+    <release version="0.1.3" date="2026-10-04">
+      <description>
+        <p>Fixed: the mouse stopped working while the service ran together with ydotoold or LogiOps (virtual devices that are both a keyboard and a mouse).</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-10-01">
       <description>
         <p>App icon.</p>

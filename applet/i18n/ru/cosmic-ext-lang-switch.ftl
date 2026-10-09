@@ -32,3 +32,5 @@ about = О программе
 about-comments = Исправляет текст, набранный не в той раскладке
 about-repository = Репозиторий
 about-support = Поддержка
+donate-title = Поддержать проект
+donate-text = Lang Switch бесплатный. Если он вам помогает, вы можете поддержать его развитие.

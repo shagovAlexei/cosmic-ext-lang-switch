@@ -32,3 +32,5 @@ about = About
 about-comments = Fix text typed in the wrong keyboard layout
 about-repository = Repository
 about-support = Support
+donate-title = Support the project
+donate-text = Lang Switch is free. If it helps you, you can support its development.

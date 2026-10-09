@@ -106,6 +106,23 @@ fn about() -> widget::about::About {
         ])
 }
 
+/// Stripe Payment Link: a hosted payment page, no server needed.
+const DONATE_URL: &str = "https://donate.stripe.com/eVq14o08Jcxb13483t67S01";
+
+fn donate() -> Element<'static, Message> {
+    widget::column::with_capacity(3)
+        .spacing(8)
+        .align_x(cosmic::iced::Alignment::Center)
+        .width(cosmic::iced::Length::Fill)
+        .push(widget::text::heading(fl!("donate-title")))
+        .push(widget::text::body(fl!("donate-text")))
+        .push(
+            widget::button::suggested(fl!("donate-title"))
+                .on_press(Message::OpenUrl(DONATE_URL.to_string())),
+        )
+        .into()
+}
+
 impl SettingsApp {
     /// Saves `value` as the hotkey for `slot` unless another action already uses it.
     fn assign(&mut self, slot: Slot, value: String) -> bool {
@@ -390,12 +407,13 @@ impl Application for SettingsApp {
 
     fn context_drawer(&self) -> Option<cosmic::app::context_drawer::ContextDrawer<'_, Message>> {
         self.core.window.show_context.then(|| {
-            cosmic::app::context_drawer::about(
-                &self.about,
-                |url| Message::OpenUrl(url.to_string()),
-                Message::CloseAbout,
-            )
-            .title(fl!("about"))
+            let content = widget::column::with_children(vec![
+                donate(),
+                widget::about(&self.about, |url| Message::OpenUrl(url.to_string())),
+            ])
+            .spacing(24);
+            cosmic::app::context_drawer::context_drawer(content, Message::CloseAbout)
+                .title(fl!("about"))
         })
     }
 
@@ -445,17 +463,32 @@ impl Application for SettingsApp {
         ];
         match self.page() {
             Page::General => {
-                let about = widget::button::custom(settings::item_row(vec![
-                    widget::text::body(fl!("about"))
+                let link = |text: String, icon: &'static str, msg: Message| {
+                    settings::section().add(
+                        widget::button::custom(settings::item_row(vec![
+                            widget::text::body(text)
+                                .width(cosmic::iced::Length::Fill)
+                                .into(),
+                            widget::icon::from_name(icon).size(16).into(),
+                        ]))
+                        .class(cosmic::theme::Button::Text)
                         .width(cosmic::iced::Length::Fill)
-                        .into(),
-                    widget::icon::from_name("go-next-symbolic").size(16).into(),
-                ]))
-                .class(cosmic::theme::Button::Text)
-                .width(cosmic::iced::Length::Fill)
-                .on_press(Message::ShowAbout);
-                let about = settings::section().add(about);
-                sections.extend([hotkeys.into(), behavior.into(), status.into(), about.into()]);
+                        .on_press(msg),
+                    )
+                };
+                let donate = link(
+                    fl!("donate-title"),
+                    "emblem-favorite-symbolic",
+                    Message::OpenUrl(DONATE_URL.to_string()),
+                );
+                let about = link(fl!("about"), "go-next-symbolic", Message::ShowAbout);
+                sections.extend([
+                    hotkeys.into(),
+                    behavior.into(),
+                    status.into(),
+                    donate.into(),
+                    about.into(),
+                ]);
             }
             Page::Auto => sections.extend(self.auto_page()),
         }

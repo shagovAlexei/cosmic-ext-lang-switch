@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core", "daemon", "applet", "tools/gen-model"]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["Shagov Alexei <shagov.alexei@gmail.com>"]
